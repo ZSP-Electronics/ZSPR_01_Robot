@@ -62,6 +62,8 @@
 #define BOARD_IO_RST         (14)
 #define BOARD_SERIAL_TX      (2)
 #define BOARD_SERIAL_RX      (1)
+#define BOARD_MOTOR_TX       (43)
+#define BOARD_MOTOR_RX       (44)
 #define BOARD_BUZZER         (3)
 
 #define BOARD_IO2_INT        IO_PIN_0

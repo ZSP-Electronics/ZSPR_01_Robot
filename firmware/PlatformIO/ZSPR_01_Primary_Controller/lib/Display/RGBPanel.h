@@ -3,19 +3,20 @@
 #include <Arduino.h>
 
 #ifndef BOARD_HAS_PSRAM
-#error "Please turn on PSRAM to OPI !"
+#define NO_PSRAM_ERROR
+#warning "Please turn on PSRAM to OPI !"
 #endif
 
-#if ESP_ARDUINO_VERSION > ESP_ARDUINO_VERSION_VAL(3, 3, 0)
-#error "ESP Arduino Version must be 3.3.0 or less"
-#endif
+// #if ESP_ARDUINO_VERSION > ESP_ARDUINO_VERSION_VAL(3, 3, 0)
+// #error "ESP Arduino Version must be 3.3.0 or less"
+// #endif
 
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
 #include <esp_lcd_panel_vendor.h>
 
-#include <SD_MMC.h>
+// #include <SD_MMC.h>
 #include "Simple_Display.h"
 #include "board_io.h"
 

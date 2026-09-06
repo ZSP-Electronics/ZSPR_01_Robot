@@ -244,6 +244,7 @@ KTS1622_IO_Expander::KTS1622_IO_Expander(uint8_t numModules, const uint8_t addre
     for (uint8_t i = 0; i < _numModules; ++i) {
         _modules[i] = new KTS1622(addresses[i], wirePort);
     }
+    _failedMask = 0;
 }
 
 KTS1622_IO_Expander::~KTS1622_IO_Expander()
@@ -257,10 +258,15 @@ KTS1622_IO_Expander::~KTS1622_IO_Expander()
 bool KTS1622_IO_Expander::begin()
 {
     bool ok = true;
+    _failedMask = 0;
     for (uint8_t i = 0; i < _numModules; ++i) {
         if (_modules[i]) {
-            ok = _modules[i]->begin() && ok;
+            if (!_modules[i]->begin()) {
+                _failedMask |= 1U << i;
+                ok = false;
+            }
         } else {
+            _failedMask |= 1U << i;
             ok = false;
         }
     }
@@ -296,5 +302,55 @@ int KTS1622_IO_Expander::digitalRead(uint8_t pin)
     if (!mapPin(pin, moduleIndex, localPin)) return LOW;
     if (_modules[moduleIndex]) return _modules[moduleIndex]->digitalRead(localPin);
     return LOW;
+}
+
+uint16_t KTS1622_IO_Expander::getInterruptStatus(uint8_t moduleIndex)
+{
+    if (moduleIndex >= _numModules || !_modules[moduleIndex]) return 0;
+    return _modules[moduleIndex]->getInterruptStatus();
+}
+
+int KTS1622_IO_Expander::firstInterruptPin(uint8_t moduleIndex)
+{
+    uint16_t status = getInterruptStatus(moduleIndex);
+    if (status == 0) return -1;
+
+    for (uint8_t pin = 0; pin < 16; ++pin) {
+        if (status & (1U << pin)) {
+            return int(moduleIndex) * 16 + pin;
+        }
+    }
+    return -1;
+}
+
+uint64_t KTS1622_IO_Expander::getInterruptingPins()
+{
+    uint64_t pins = 0;
+    for (uint8_t moduleIndex = 0; moduleIndex < _numModules; ++moduleIndex) {
+        pins |= uint64_t(getInterruptStatus(moduleIndex)) << (moduleIndex * 16);
+    }
+    return pins;
+}
+
+uint8_t KTS1622_IO_Expander::getInterruptingModules()
+{
+    uint8_t modules = 0;
+    for (uint8_t moduleIndex = 0; moduleIndex < _numModules; ++moduleIndex) {
+        if (getInterruptStatus(moduleIndex) != 0) {
+            modules |= 1U << moduleIndex;
+        }
+    }
+    return modules;
+}
+
+uint8_t KTS1622_IO_Expander::attachedModules() const
+{
+    uint8_t attached = 0;
+    for (uint8_t moduleIndex = 0; moduleIndex < _numModules; ++moduleIndex) {
+        if ((_failedMask & (1U << moduleIndex)) == 0) {
+            ++attached;
+        }
+    }
+    return attached;
 }
 

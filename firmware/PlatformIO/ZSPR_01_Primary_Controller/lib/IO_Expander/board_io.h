@@ -33,3 +33,7 @@ inline int board_digitalRead(int pin) {
     }
     return digitalRead(pin);
 }
+
+inline void board_togglePin(int pin) {
+    board_digitalWrite(pin, !board_digitalRead(pin));
+}

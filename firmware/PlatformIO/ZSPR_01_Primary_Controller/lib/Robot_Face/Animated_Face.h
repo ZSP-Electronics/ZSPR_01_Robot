@@ -21,12 +21,8 @@
   #define PURPLE 0x780F
 #endif
 
-#if __has_include(<TFT_eSPI.h>)
-  #include <TFT_eSPI.h>
-  #define TFT_ESPI_AVAILABLE 1
-#else
-  #define TFT_ESPI_AVAILABLE 0
-#endif
+#include <TFT_eSPI.h>
+#define TFT_ESPI_AVAILABLE 1
 
 #ifndef RGB565
   #define RGB565(r, g, b) ((uint16_t)((((r)&0xF8) << 8) | (((g)&0xFC) << 3) | ((b) >> 3)))
