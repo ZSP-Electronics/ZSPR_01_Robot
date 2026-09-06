@@ -14,6 +14,9 @@
 class Current_Module : public Universal_Module
 {
 public:
+    INA232 *currSys;
+    INA232 *currMotor;
+
     Current_Module(bool enable) : Universal_Module(enable)
     {
         currSys = new INA232(INA232_ADDR_A0_GND, Wire);  // system current, A0->GND
@@ -61,9 +64,6 @@ public:
     return_codes_t setData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
 
 private:
-    INA232 *currSys;
-    INA232 *currMotor;
-
     uint16_t _sysVoltage_mV = 0;
     int16_t _sysCurrent_mA = 0;
     uint16_t _sysPower_mW = 0;

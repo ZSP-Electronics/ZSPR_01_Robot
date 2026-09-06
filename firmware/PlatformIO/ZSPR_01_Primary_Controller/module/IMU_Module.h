@@ -11,6 +11,8 @@
 class IMU_Module : public Universal_Module
 {
 public:
+    Adafruit_MMC5603 *_mag;
+
     IMU_Module(bool enable) : Universal_Module(enable)
     {
         _mag = new Adafruit_MMC5603(12345);
@@ -55,7 +57,6 @@ public:
     {
         if (_enabled)
         {
-            
         }
         return SUCCESS;
     }
@@ -70,7 +71,6 @@ public:
     }
 
 private:
-    Adafruit_MMC5603 *_mag;
     bool imu_initialized = false;
     bool mag_initialized = false;
 

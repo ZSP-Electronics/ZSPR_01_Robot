@@ -12,6 +12,9 @@
 class Display_Module : public Universal_Module
 {
 public:
+  RGBroboFace face;
+  TFT_eSprite spr = TFT_eSprite(&tft);
+
   Display_Module(bool enable) : Universal_Module(enable) {}
 
   return_codes_t setup() override
@@ -90,35 +93,34 @@ public:
       face.setEyeExpression(Normal);
     }
 #endif
-return SUCCESS;
-    }
+    return SUCCESS;
+  }
 
-    return_codes_t update() override
+  return_codes_t update() override
+  {
+    if (_enabled)
     {
-      if (_enabled)
+      if (millis() - _last_refresh >= _target_frame_rate)
       {
-        if (millis() - _last_refresh >= _target_frame_rate)
-        {
-          _last_refresh = millis();
-          face.update(); // update eyes drawings
-          panel.pushColors(0, 0, _width, _height, (uint16_t *)spr.getPointer());
-        }
+        _last_refresh = millis();
+        face.update(); // update eyes drawings
+        panel.pushColors(0, 0, _width, _height, (uint16_t *)spr.getPointer());
       }
-
-      return SUCCESS;
     }
 
-    return_codes_t getData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
-    return_codes_t setData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
+    return SUCCESS;
+  }
 
-  private:
-    RGBPanel panel;
-    RGBroboFace face;
-    TFT_eSPI tft = TFT_eSPI();
-    TFT_eSprite spr = TFT_eSprite(&tft);
+  return_codes_t getData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
+  return_codes_t setData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
 
-    uint16_t _height = panel.height();
-    uint16_t _width = panel.width();
-    uint32_t _last_refresh = 0;
-    uint16_t _target_frame_rate = 30; // in ms will result in ~33FPS
-  };
+private:
+  RGBPanel panel;
+
+  TFT_eSPI tft = TFT_eSPI();
+
+  uint16_t _height = panel.height();
+  uint16_t _width = panel.width();
+  uint32_t _last_refresh = 0;
+  uint16_t _target_frame_rate = 30; // in ms will result in ~33FPS
+};

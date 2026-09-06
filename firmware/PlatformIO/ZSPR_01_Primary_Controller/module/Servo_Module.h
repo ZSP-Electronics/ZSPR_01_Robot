@@ -23,7 +23,7 @@
 
 struct servo_data
 {
-    int listID;
+    int servoID;
     int ServoType;
     int16_t loadRead;
     int16_t speedRead;
@@ -38,6 +38,9 @@ struct servo_data
 class Servo_Module : public Universal_Module
 {
 public:
+    SCSCL sc;
+    SMS_STS st;
+
     Servo_Module(bool enable) : Universal_Module(enable)
     {
     }
@@ -54,7 +57,7 @@ public:
             {
                 servoData[i].Torque_List = true;
                 servoData[i].ServoType = -1;
-                servoData[i].listID = -1;
+                servoData[i].servoID = -1;
             }
 
             uint32_t start_time = millis();
@@ -76,7 +79,7 @@ public:
                 PingStatus = st.Ping(i);
                 if (PingStatus != -1)
                 {
-                    servoData[i].listID = i;
+                    servoData[i].servoID = i;
                     servoData[i].ServoType = st.readByte(i, 3);
                     servoData[i].posRead = st.ReadPos(i);
                     foundServos++;
@@ -90,7 +93,7 @@ public:
             Serial.print("ID:   ");
             for (int i = starting_index; i < starting_index + foundServos; i++)
             {
-                Serial.printf("%2i ", servoData[i].listID);
+                Serial.printf("%2i ", servoData[i].servoID);
             }
             Serial.println();
 
@@ -111,10 +114,10 @@ public:
     {
         if (_enabled)
         {
-            // for (int i = 0; i < foundServos; i++)
-            // {
-            //     getFeedBack(servoData[i].listID);
-            // }
+            for (int i = 0; i < foundServos; i++)
+            {
+                getFeedBack(servoData[i].servoID);
+            }
         }
 
         return SUCCESS;
@@ -125,86 +128,51 @@ public:
         return SUCCESS;
     }
 
-    void writePos(uint8_t id, int16_t pos, uint16_t speed = 1000, uint8_t acc = 0)
-    {
-        uint8_t _index = 0;
-
-        for (int i = 0; i <= foundServos; i++)
-        {
-            if (servoData[i].listID == id)
-            {
-                _index = i;
-                break;
-            }
-        }
-
-        if (servoData[_index].ServoType == STSERVOTYPE)
-        {
-            st.WritePosEx(id, pos, speed, acc);
-        }
-        else if (servoData[_index].ServoType == SCSERVOTYPE)
-        {
-            sc.WritePos(id, pos, speed, acc);
-        }
-    }
-
     return_codes_t setData(uint16_t *data, int argc, char **argv) override
     {
-        if (_enabled)
-        {
-            
-        }
         return SUCCESS;
     }
-
-private:
-    int MAX_MIN_OFFSET = 30;
-    int foundServos = 0;
-
-    // === SC Servo === TypeNum:5
-    SCSCL sc;
-    float ServoDigitalRange_SC = 1023.0;
-    float ServoAngleRange_SC = 210.0;
-    float ServoDigitalMiddle_SC = 511.0;
-
-    // === ST Servo === TypeNum:9
-    SMS_STS st;
-    float ServoDigitalRange_ST = 4095.0;
-    float ServoAngleRange_ST = 360.0;
-    float ServoDigitalMiddle_ST = 2047.0;
-
-    servo_data servoData[MAX_SERVO_NUM];
 
     /*******************/
     /* SERVO FUNCTIONS */
     /*******************/
     void getFeedBack(byte servoID)
     {
+        byte InputIDIndex = 0;
 
-        if (servoData[servoID].ServoType == STSERVOTYPE)
+        for (int i = 0; i < foundServos; i++)
+        {
+            if (servoData[i].servoID == servoID)
+            {
+                InputIDIndex = i;
+                break;
+            }
+        }
+
+        if (servoData[InputIDIndex].ServoType == STSERVOTYPE)
         {
             if (st.FeedBack(servoID) != -1)
             {
-                servoData[servoID].posRead = st.ReadPos(servoID);
-                servoData[servoID].speedRead = st.ReadSpeed(servoID);
-                servoData[servoID].loadRead = st.ReadLoad(servoID);
-                servoData[servoID].voltageRead = st.ReadVoltage(servoID);
-                servoData[servoID].currentRead = st.ReadCurrent(servoID);
-                servoData[servoID].temperRead = st.ReadTemper(servoID);
-                servoData[servoID].modeRead = st.ReadMode(servoID);
+                servoData[InputIDIndex].posRead = st.ReadPos(servoID);
+                servoData[InputIDIndex].speedRead = st.ReadSpeed(servoID);
+                servoData[InputIDIndex].loadRead = st.ReadLoad(servoID);
+                servoData[InputIDIndex].voltageRead = st.ReadVoltage(servoID);
+                servoData[InputIDIndex].currentRead = st.ReadCurrent(servoID);
+                servoData[InputIDIndex].temperRead = st.ReadTemper(servoID);
+                servoData[InputIDIndex].modeRead = st.ReadMode(servoID);
             }
         }
-        else if (servoData[servoID].ServoType == SCSERVOTYPE)
+        else if (servoData[InputIDIndex].ServoType == SCSERVOTYPE)
         {
             if (sc.FeedBack(servoID) != -1)
             {
-                servoData[servoID].posRead = sc.ReadPos(servoID);
-                servoData[servoID].speedRead = sc.ReadSpeed(servoID);
-                servoData[servoID].loadRead = sc.ReadLoad(servoID);
-                servoData[servoID].voltageRead = sc.ReadVoltage(servoID);
-                servoData[servoID].currentRead = sc.ReadCurrent(servoID);
-                servoData[servoID].temperRead = sc.ReadTemper(servoID);
-                servoData[servoID].modeRead = sc.ReadMode(servoID);
+                servoData[InputIDIndex].posRead = sc.ReadPos(servoID);
+                servoData[InputIDIndex].speedRead = sc.ReadSpeed(servoID);
+                servoData[InputIDIndex].loadRead = sc.ReadLoad(servoID);
+                servoData[InputIDIndex].voltageRead = sc.ReadVoltage(servoID);
+                servoData[InputIDIndex].currentRead = sc.ReadCurrent(servoID);
+                servoData[InputIDIndex].temperRead = sc.ReadTemper(servoID);
+                servoData[InputIDIndex].modeRead = sc.ReadMode(servoID);
             }
         }
 #ifdef DEBUG
@@ -219,9 +187,9 @@ private:
     {
         byte InputIDIndex = 0;
 
-        for (int i = 0; i < MAX_SERVO_NUM; i++)
+        for (int i = 0; i < foundServos; i++)
         {
-            if (servoData[i].listID == InputID)
+            if (servoData[i].servoID == InputID)
             {
                 InputIDIndex = i;
                 break;
@@ -238,9 +206,9 @@ private:
     {
         byte InputIDIndex = 0;
 
-        for (int i = 0; i <= MAX_SERVO_NUM; i++)
+        for (int i = 0; i < foundServos; i++)
         {
-            if (servoData[i].listID == InputID)
+            if (servoData[i].servoID == InputID)
             {
                 InputIDIndex = i;
                 break;
@@ -327,13 +295,24 @@ private:
 
     void servoStop(byte servoID)
     {
-        if (servoData[servoID].ServoType == STSERVOTYPE)
+        uint8_t _index = 0;
+
+        for (int i = 0; i < foundServos; i++)
+        {
+            if (servoData[i].servoID == servoID)
+            {
+                _index = i;
+                break;
+            }
+        }
+
+        if (servoData[_index].ServoType == STSERVOTYPE)
         {
             st.EnableTorque(servoID, 0);
             delay(10);
             st.EnableTorque(servoID, 1);
         }
-        else if (servoData[servoID].ServoType == SCSERVOTYPE)
+        else if (servoData[_index].ServoType == SCSERVOTYPE)
         {
             sc.EnableTorque(servoID, 0);
             delay(10);
@@ -351,13 +330,64 @@ private:
 
     void servoTorque(byte servoID, u8 enableCMD)
     {
-        if (servoData[servoID].ServoType == STSERVOTYPE)
+        uint8_t _index = 0;
+
+        for (int i = 0; i < foundServos; i++)
+        {
+            if (servoData[i].servoID == servoID)
+            {
+                _index = i;
+                break;
+            }
+        }
+
+        if (servoData[_index].ServoType == STSERVOTYPE)
         {
             st.EnableTorque(servoID, enableCMD);
         }
-        else if (servoData[servoID].ServoType == SCSERVOTYPE)
+        else if (servoData[_index].ServoType == SCSERVOTYPE)
         {
             sc.EnableTorque(servoID, enableCMD);
         }
     }
+
+    void writePosition(uint8_t id, int16_t pos, uint16_t speed = 1000, uint8_t acc = 0)
+    {
+        uint8_t _index = 0;
+
+        for (int i = 0; i < foundServos; i++)
+        {
+            if (servoData[i].servoID == id)
+            {
+                _index = i;
+                break;
+            }
+        }
+
+        if (servoData[_index].ServoType == STSERVOTYPE)
+        {
+            st.WritePosEx(id, pos, speed, acc);
+        }
+        else if (servoData[_index].ServoType == SCSERVOTYPE)
+        {
+            sc.WritePos(id, pos, speed, acc);
+        }
+    }
+
+
+private:
+    int MAX_MIN_OFFSET = 30;
+    int foundServos = 0;
+
+    // === SC Servo === TypeNum:5
+    float ServoDigitalRange_SC = 1023.0;
+    float ServoAngleRange_SC = 210.0;
+    float ServoDigitalMiddle_SC = 511.0;
+
+    // === ST Servo === TypeNum:9
+    float ServoDigitalRange_ST = 4095.0;
+    float ServoAngleRange_ST = 360.0;
+    float ServoDigitalMiddle_ST = 2047.0;
+
+    servo_data servoData[MAX_SERVO_NUM];
 };
