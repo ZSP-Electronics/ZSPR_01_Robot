@@ -25,3 +25,8 @@ inline uint8_t fail(uint8_t &respLen, PacketStatus s)
     respLen = 0;
     return (uint8_t)s;
 }
+
+inline uint8_t pingHandler(const uint8_t *payload, uint8_t len, uint8_t *respPayload, uint8_t &respLen)
+{
+    return ok(respLen, 0);
+}

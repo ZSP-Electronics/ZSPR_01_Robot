@@ -292,7 +292,7 @@ void Command::toString(String& s, bool description) const {
         }
 
         if (description && hasDescription()) {
-            s += "\r\n" + getDescription();
+            s += "\t\t" + getDescription();
         }
     }
 }

@@ -374,6 +374,15 @@ public:
         }
     }
 
+    uint8_t get_found_servos(void)
+    {
+        return foundServos;
+    }
+
+    int get_servo_id(uint8_t index)
+    {
+        return servoData[index].servoID;
+    }
 
 private:
     int MAX_MIN_OFFSET = 30;

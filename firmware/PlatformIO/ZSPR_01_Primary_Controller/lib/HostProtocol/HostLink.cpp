@@ -4,10 +4,11 @@
 
 HostLink hostLink;
 
-void HostLink::begin(Stream &serial, CLI &cliRef) {
-    _serial = &serial;
-    _cli    = &cliRef;
-    _state  = State::IDLE;
+void HostLink::begin(Stream &serial, SimpleCLI &cliRef) {
+    _serial  = &serial;
+    _cli     = &cliRef;
+    _state   = State::IDLE;
+    _lineLen = 0;
 }
 
 void HostLink::registerHandler(PacketCmd cmd, ProtocolHandler fn) {
@@ -27,7 +28,7 @@ void HostLink::_feedByte(uint8_t b) {
         if (b == PROTOCOL_SYNC0) {
             _state = State::WAIT_SYNC1;
         } else {
-            _cli->feed(static_cast<char>(b));
+            _feedCliByte(b);
         }
         return;
 
@@ -35,9 +36,10 @@ void HostLink::_feedByte(uint8_t b) {
         if (b == PROTOCOL_SYNC1) {
             _state = State::LEN;
         } else {
-            // The 0xAA we saw wasn't a real frame start; drop it and
-            // reprocess this byte as if we were still idle.
+            // The 0xAA we saw wasn't a real frame start -- it was CLI text.
+            // Replay it there, then reprocess this byte from IDLE.
             _state = State::IDLE;
+            _feedCliByte(PROTOCOL_SYNC0);
             _feedByte(b);
         }
         return;
@@ -69,6 +71,35 @@ void HostLink::_feedByte(uint8_t b) {
         _onFrameComplete(b);
         _state = State::IDLE;
         return;
+    }
+}
+
+void HostLink::_feedCliByte(uint8_t b) {
+    if (!_cli) return;
+
+    // Backspace/delete: erase the last buffered character, locally and on
+    // the terminal (which doesn't do its own line editing over raw serial).
+    if (b == '\b' || b == 0x7F) {
+        if (_lineLen > 0) {
+            _lineLen--;
+            _serial->write("\b \b", 3);
+        }
+        return;
+    }
+
+    _serial->write(b); // echo, since a raw serial terminal won't do it for us
+
+    if (b == '\r' || b == '\n') {
+        if (b == '\r') _serial->write('\n');
+        if (_lineLen > 0) {
+            _cli->parse(_lineBuf, _lineLen);
+            _lineLen = 0;
+        }
+        return;
+    }
+
+    if (_lineLen < HOSTLINK_MAX_LINE) {
+        _lineBuf[_lineLen++] = static_cast<char>(b);
     }
 }
 

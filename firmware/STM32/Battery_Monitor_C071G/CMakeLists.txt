@@ -59,16 +59,12 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 
     # Libraries - BQ25883 (charger)
     ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/BQ25883/BQ25883.cpp
-
-    # Libraries - stmCLI
-    ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/CLI/stmCLI/STM_CLI.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/CLI/stmCLI/CLICommand.cpp
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Libraries
-    Libraries/CLI/stmCLI
+    Libraries/Comms
     Libraries/Serial
     Libraries/SSD1306
     Libraries/BQ25883

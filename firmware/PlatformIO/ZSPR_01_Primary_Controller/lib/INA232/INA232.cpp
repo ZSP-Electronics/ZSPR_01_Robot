@@ -14,7 +14,7 @@ namespace {
     constexpr uint16_t MANUFACTURER_ID_TI = 0x5449; // "TI"
     constexpr uint16_t CONFIG_RESET       = 0x8000;
 
-    constexpr float BUS_VOLTAGE_LSB_MV   = 1.25f;
+    constexpr float BUS_VOLTAGE_LSB_MV   = 1.60f;
     constexpr float SHUNT_VOLTAGE_LSB_UV = 2.5f;
     constexpr uint16_t ALERT_ACTIVE_HIGH = 1U << 1;
     constexpr uint16_t ALERT_LATCH       = 1U;

@@ -9,7 +9,7 @@
 
 #define SYSTEM_OHM 0.005f // 5mOhm shunt resistor for system current
 #define MOTOR_OHM 0.005f  // 5mOhm shunt resistor
-#define CURRENT_MAX 5.0f  // maximum expected current in Amps for calibration
+#define CURRENT_MAX 16.0f // maximum expected current in Amps for calibration
 
 class Current_Module : public Universal_Module
 {
@@ -25,6 +25,7 @@ public:
 
     return_codes_t setup() override
     {
+        return_codes_t code = ERROR;
         if (_enabled)
         {
             bool _ok1, _ok2;
@@ -37,25 +38,24 @@ public:
             if (!_ok1 || !_ok2)
             {
                 Serial.println("INA232 not found");
-                return ERROR;
+                code = ERROR;
             }
+            else
+                code = SUCCESS;
         }
 
-        return SUCCESS;
+        return code;
     }
 
     return_codes_t update() override
     {
-        if (_enabled)
-        {
-            _sysVoltage_mV = currSys->readBusVoltage_mV();
-            _sysCurrent_mA = currSys->readCurrent_mA();
-            _sysPower_mW = currSys->readPower_mW();
+        _sysVoltage_mV = currSys->readBusVoltage_mV();
+        _sysCurrent_mA = currSys->readCurrent_mA();
+        _sysPower_mW = currSys->readPower_mW();
 
-            _motorVoltage_mV = currMotor->readBusVoltage_mV();
-            _motorCurrent_mA = currMotor->readCurrent_mA();
-            _motorPower_mW = currMotor->readPower_mW();
-        }
+        _motorVoltage_mV = currMotor->readBusVoltage_mV();
+        _motorCurrent_mA = currMotor->readCurrent_mA();
+        _motorPower_mW = currMotor->readPower_mW();
 
         return SUCCESS;
     }

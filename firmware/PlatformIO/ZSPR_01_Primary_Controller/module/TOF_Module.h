@@ -19,54 +19,88 @@ public:
 
     return_codes_t setup() override
     {
+        return_codes_t code = ERROR;
         if (_enabled)
         {
             board_digitalWrite(BOARD_VLx_SPI_N, HIGH);
             board_digitalWrite(BOARD_VLx_LPN, HIGH);
 
-            SPI.begin(BOARD_SCLK, BOARD_MISO, BOARD_MOSI);
-
             // Configure VL53L8CX component.
             sensor_vl53l8cx_top->begin();
             _status = sensor_vl53l8cx_top->init();
 
-            // Start Measurements
-            _status = sensor_vl53l8cx_top->start_ranging();
+            if (_status == VL53L8CX_STATUS_OK)
+            {
+                // Start Measurements
+                _status = sensor_vl53l8cx_top->start_ranging();
+            }
+            else
+            {
+                Serial.printf("[tof] init failed, status=%u\r\n", _status);
+            }
+
+            uint8_t isDataReady = 0;
+            _status = sensor_vl53l8cx_top->check_data_ready(&isDataReady);
+
+            if (_status == VL53L8CX_STATUS_OK)
+                code = SUCCESS;
+            else if (_status == VL53L8CX_STATUS_TIMEOUT_ERROR)
+                code = TIMEOUT;  
+                
+           NewDataReady = isDataReady;
         }
-        return SUCCESS;
+        return code;
     }
 
     return_codes_t update() override
     {
+        return_codes_t code = ERROR;
         if (_enabled)
         {
-            VL53L8CX_ResultsData Results;
-            uint8_t NewDataReady = 0;
+            uint8_t isDataReady = 0;
+
             // do
             // {
             //     _status = sensor_vl53l8cx_top->check_data_ready(&NewDataReady);
             // } while (!NewDataReady);
-            _status = sensor_vl53l8cx_top->check_data_ready(&NewDataReady);
-            if(!NewDataReady) return TIMEOUT;
+            _status = sensor_vl53l8cx_top->check_data_ready(&isDataReady);
+            if (!isDataReady)
+                return TIMEOUT;
 
-            if ((!_status) && (NewDataReady != 0))
+            if ((!_status) && (isDataReady != 0))
             {
-                _status = sensor_vl53l8cx_top->get_ranging_data(&Results);
-                store_results(&Results);
+                _status = sensor_vl53l8cx_top->get_ranging_data(&_resultData);
             }
+
+            if (_status == VL53L8CX_STATUS_OK)
+                code = SUCCESS;
+            else if (_status == VL53L8CX_STATUS_TIMEOUT_ERROR)
+                code = TIMEOUT;
+
+            NewDataReady = isDataReady;
         }
 
-        return SUCCESS;
+        return code;
     }
 
     /****************/
     /* TOF COMMANDS */
     /****************/
-    void store_results(VL53L8CX_ResultsData *Result)
+    uint8_t is_data_ready(void)
     {
-        _result = Result;
+        // Serial.printf("TOF is Data ready value: %d\r\n", NewDataReady);
+        return NewDataReady;
     }
 
+    const VL53L8CX_ResultsData &get_results(void) const
+    {
+        return _resultData;
+    }
+
+    uint8_t get_resolution(void) const
+    {
+        return _res;
+    }
 
     void print_result(VL53L8CX_ResultsData *Result)
     {
@@ -213,10 +247,11 @@ public:
 private:
     VL53L8CX *sensor_vl53l8cx_top;
 
+    uint8_t NewDataReady = 0;
     bool _EnableAmbient = false;
     bool _EnableSignal = false;
     uint8_t _res = VL53L8CX_RESOLUTION_4X4;
     char report[256];
     uint8_t _status;
-    VL53L8CX_ResultsData *_result;
+    VL53L8CX_ResultsData _resultData;
 };

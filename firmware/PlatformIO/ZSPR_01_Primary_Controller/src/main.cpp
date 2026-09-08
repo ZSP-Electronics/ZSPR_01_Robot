@@ -4,10 +4,10 @@
 
 void setup()
 {
-  hardware_setup();
+  system_setup();
 }
 
 void loop()
 {
-  
+  system_loop();
 }
