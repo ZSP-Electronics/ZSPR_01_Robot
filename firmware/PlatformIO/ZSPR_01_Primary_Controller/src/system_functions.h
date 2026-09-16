@@ -24,7 +24,7 @@
 #include "SDCard_Module.h"
 #include "Battery_Module.h"
 
-#define ZSPR_CLI_VERSION "0.0.1"
+#define ZSPR_CONTROLLER_VERSION "0.0.1"
 
 SimpleCLI cli;
 Stream *cliSerial;
@@ -234,7 +234,7 @@ void helpCallback(cmd *cmdPtr)
 
   if (_version)
   {
-    cliSerial->println("> ZSPR CLI Version: " + String(ZSPR_CLI_VERSION));
+    cliSerial->println("> ZSPR Controller Version: " + String(ZSPR_CONTROLLER_VERSION));
   }
   else
   {
