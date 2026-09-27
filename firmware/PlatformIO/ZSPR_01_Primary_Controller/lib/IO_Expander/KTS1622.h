@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+// #include "board_io.h"
 // #include "io_defines.h"
 
 // Tag bit marking a pin number as belonging to the KTS1622 IO expander chain
@@ -14,9 +15,9 @@
 #define IO_EXPANDER_LOCAL_PIN(pin) ((pin) & ~IO_EXPANDER_FLAG)
 #define IO_IS_EXPANDER_PIN(pin) (((pin) & IO_EXPANDER_FLAG) != 0)
 
-#define IO_PIN_0  IO_EXPANDER_PIN(0)
-#define IO_PIN_1  IO_EXPANDER_PIN(1)
-#define IO_PIN_2  IO_EXPANDER_PIN(2)
+#define IO_PIN_0  IO_EXPANDER_PIN(0)    //128
+#define IO_PIN_1  IO_EXPANDER_PIN(1)    //129
+#define IO_PIN_2  IO_EXPANDER_PIN(2)    //130
 #define IO_PIN_3  IO_EXPANDER_PIN(3)
 #define IO_PIN_4  IO_EXPANDER_PIN(4)
 #define IO_PIN_5  IO_EXPANDER_PIN(5)
@@ -29,7 +30,7 @@
 #define IO_PIN_12 IO_EXPANDER_PIN(12)
 #define IO_PIN_13 IO_EXPANDER_PIN(13)
 #define IO_PIN_14 IO_EXPANDER_PIN(14)
-#define IO_PIN_15 IO_EXPANDER_PIN(15)
+#define IO_PIN_15 IO_EXPANDER_PIN(15)   //143
 #define IO_PIN_16 IO_EXPANDER_PIN(16)
 #define IO_PIN_17 IO_EXPANDER_PIN(17)
 #define IO_PIN_18 IO_EXPANDER_PIN(18)
@@ -45,7 +46,7 @@
 #define IO_PIN_28 IO_EXPANDER_PIN(28)
 #define IO_PIN_29 IO_EXPANDER_PIN(29)
 #define IO_PIN_30 IO_EXPANDER_PIN(30)
-#define IO_PIN_31 IO_EXPANDER_PIN(31)
+#define IO_PIN_31 IO_EXPANDER_PIN(31)   //159
 
 // I2C device address, selected by the ADDR pin's connection (KTS1622 datasheet Table 1).
 // Up to 4 KTS1622s can share a bus, one per ADDR strapping option.
@@ -96,6 +97,8 @@ public:
 
     // Probes the device over I2C. Returns true if it acknowledged.
     bool begin();
+
+    uint8_t address() const { return _address; }
 
     // --- Arduino-style single pin I/O, pin = 0..15 ---
     // mode accepts the standard Arduino constants: INPUT, OUTPUT, INPUT_PULLUP,
@@ -172,19 +175,44 @@ public:
     ~KTS1622_IO_Expander();
 
     // Probes each device on the bus. Returns true if all modules acknowledge.
-    bool begin();
+    // On failure, use failedModulesMask()/moduleFailed()/moduleAddress() to
+    // identify which module(s) didn't respond.
+    bool begin(const uint8_t rst_pins[] = nullptr);
+
+    // Bitmask of modules that failed to acknowledge on the last begin() call
+    // (bit n = module n). 0 if begin() hasn't run yet or every module was OK.
+    uint8_t failedModulesMask() const { return _failedMask; }
+    bool moduleFailed(uint8_t moduleIndex) const {
+        return moduleIndex < _numModules && (_failedMask & (1U << moduleIndex)) != 0;
+    }
+    // I2C address of a given module, for logging which physical device failed.
+    uint8_t moduleAddress(uint8_t moduleIndex) const {
+        return (moduleIndex < _numModules && _modules[moduleIndex]) ? _modules[moduleIndex]->address() : 0;
+    }
 
     // Global pin APIs: pin = 0..(numModules*16-1)
     void pinMode(uint8_t pin, uint8_t mode);
     void digitalWrite(uint8_t pin, uint8_t value);
     int digitalRead(uint8_t pin);
 
-    uint8_t modules() const { return _numModules; }
+    // Per-pin interrupt configuration, passed through to whichever module
+    // owns `pin`. Used by board_io.h's board_attachInterrupt() to arm a pin
+    // before dispatching on it.
+    void setInterruptEnabled(uint8_t pin, bool enabled);
+    void setInterruptEdge(uint8_t pin, KTS1622_InterruptEdge edge);
+    void clearInterrupt(uint8_t pin);
+
+    // Raw 16-bit interrupt-status register for one module (bit n = local
+    // pin n). Chain-wide rather than per-pin because a single hardware
+    // interrupt line only tells you a module fired, not which pin -- the
+    // caller reads this to find out.
+    uint16_t moduleInterruptStatus(uint8_t moduleIndex) const;
 
 private:
     KTS1622* _modules[MAX_MODULES];
     uint8_t _numModules;
     TwoWire* _wire;
+    uint8_t _failedMask;
 
     bool mapPin(uint8_t pin, uint8_t &moduleIndex, uint8_t &localPin) const;
 };

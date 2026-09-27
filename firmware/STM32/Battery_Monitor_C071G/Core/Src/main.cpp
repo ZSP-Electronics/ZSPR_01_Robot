@@ -31,7 +31,7 @@
 #include "ssd1306.h"
 #include <BQ25883.h>
 #include "DialogBold10.h"
-#include "STM_CLI.h"
+#include "Battery_Link.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,7 +46,6 @@ void checkChargeFaults(void);
 void checkInputCurrentFaults(void);
 void readStatFields(void);
 void drawPrimaryScreen(void);
-void cli_setup(void);
 
 #ifdef DEBUG
 void printFirstFiveRegs(void);
@@ -60,7 +59,7 @@ void printBatteryStatus(void);
 // HardwareSerial Serial(&huart1);
 BQ25883 charger = BQ25883();
 STM32_SSD1306 display;
-STM_CLI cli;
+Battery_Link batteryLink;
 
 /* USER CODE END PD */
 
@@ -72,12 +71,6 @@ bool left_button_state, middle_button_state, right_button_state = false;
 bool previous_left_button_state, previous_middle_button_state, previous_right_button_state = false;
 bool battery_pwr_good_state = false;
 // uint8_t rxData[UART_BUFFER_SIZE];
-
-// CLI Commands
-CLICommand* cmdHelp = nullptr;
-CLICommand* cmdPing = nullptr;
-CLICommand* cmdBatteryStatus = nullptr;
-CLICommand* cmdCurrentMeasurement = nullptr;
 
 //global variables for first five regsiters
 float cellVoltageLimit = 0.0;
@@ -184,7 +177,6 @@ int main(void)
   MX_DMA_Init();
   MX_I2C1_Init();
   MX_USART1_UART_Init();
-  cli_setup();
   // /* USER CODE BEGIN 2 */
   Board_GPIO_WritePin(battery_cEnable, LOW);
   Serial.begin(BOARD_USART1);
@@ -245,7 +237,17 @@ int main(void)
   while (1)
   {
 
-    cli.poll();
+    // Service the Primary Controller link: answer REQUEST_VOLTAGE frames and
+    // latch any SEND_CURRENT_POWER rail data pushed from the Primary.
+    batteryLink.poll();
+
+    if(batteryLink.has_current_power()){
+      const Battery_Link::RailReadings &r = batteryLink.rails();
+      ext1Voltage = r.sysBus_mV   / 1000.0f;
+      ext1Current = r.sysCurrent_mA / 1000.0f;
+      ext2Voltage = r.motorBus_mV / 1000.0f;
+      ext2Current = r.motorCurrent_mA / 1000.0f;
+    }
 
     update_button_states();
 
@@ -678,6 +680,9 @@ void readBatteryStatus(){
   charger.readADCVbatReg();
   batteryVoltage = charger.getADC_VBAT();
 
+  // Cache the pack voltage (mV) the link hands back on REQUEST_VOLTAGE.
+  batteryLink.set_battery_voltage_mV((uint16_t)(batteryVoltage * 1000.0f + 0.5f));
+
   // charger.readADCIbusReg();
   // batteryCurrent = charger.getADC_IBUS();
 }
@@ -959,60 +964,3 @@ void drawPrimaryScreen(){
 }
 
 
-/******************************************************/
-/************** CLI COMMANDS/FUNCTIONS ****************/
-/******************************************************/
-void pingCallback(CLIArgs &args){
-  Serial.println(F("Pong! Device is responsive."));
-}
-
-void batteryStatusCallback(CLIArgs &args){
-  // if(args.getArgCount() == 0){
-  //   readBatteryStatus();
-  //   printBatteryStatus();
-  // }
-  // else if(args.hasFlag("dir")){
-  //   Serial.print(F("Battery Direction: "));
-  //   if(batteryCurrent >= 0.0f){
-  //     Serial.println(F("Charging"));
-  //   }
-  //   else{
-  //     Serial.println(F("Discharging"));
-  //   }
-  // }
-  // else{
-  //   Serial.println(F("Invalid arguments for battery command."));
-  // }
-}
-
-// void currentMeasurementCallback(CLIArgs &args){
-//   readADCRegs();
-//   printADCRegs();
-
-//   float estimatedCurrent = 0.0f;
-//   Serial.print(F("Estimated System Current (VBAT-VSYS sanity check only): "));
-//   if(estimateSystemLoadCurrent(&estimatedCurrent)){
-//     Serial.print(estimatedCurrent);
-//     Serial.println(F(" A"));
-//   }
-//   else{
-//     Serial.println(F("N/A - adapter present, converter regulating VSYS"));
-//   }
-// }
-
-void helpCallback(CLIArgs &args) {
-  Serial.println("\r\nCommands:");
-  Serial.println(cli.toString());
-}
-
-void cli_setup(void)
-{
-  cmdPing = &cli.addCommand("ping", pingCallback, "Ping the device to check if it's responsive");
-
-  cmdBatteryStatus = &cli.addCommand("battery", batteryStatusCallback, "Get or set the battery status");
-  cmdBatteryStatus->addFlagArg("dir");
-
-  // cmdCurrentMeasurement = &cli.addCommand("current", currentMeasurementCallback, "Activate current measurement");
-
-  cmdHelp = &cli.addCommand("help", helpCallback, "Display available commands and their descriptions");
-}

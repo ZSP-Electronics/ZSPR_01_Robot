@@ -51,21 +51,23 @@
 #define BOARD_TOUCH_IRQ      IO_PIN_12
 #define BOARD_TOUCH_RST      IO_PIN_13
 
-#define BOARD_SDMMC_EN       IO_PIN_14
+#define BOARD_SDMMC_CS       IO_PIN_14
 #define BOARD_SDMMC_DET      IO_PIN_15
 // #define BOARD_SDMMC_SCK      (39)
 // #define BOARD_SDMMC_CMD      (40)
 // #define BOARD_SDMMC_DAT      (38)
 
 // #define BOARD_ADC_DET        (4)
-#define BOARD_IO_INT         (4)
-#define BOARD_IO_RST         (14)
-#define BOARD_SERIAL_TX      (2)
-#define BOARD_SERIAL_RX      (1)
+#define BOARD_IO2_INT         (4)
+#define BOARD_IO2_RST         (14)
+#define BOARD_SERIAL_TX      (1)
+#define BOARD_SERIAL_RX      (2)
+#define BOARD_MOTOR_TX       (43)
+#define BOARD_MOTOR_RX       (44)
 #define BOARD_BUZZER         (3)
 
-#define BOARD_IO2_INT        IO_PIN_0
-#define BOARD_IO2_RST        IO_PIN_1
+#define BOARD_IO1_INT        IO_PIN_0
+#define BOARD_IO1_RST        IO_PIN_1
 #define BOARD_VLx_SPI_N      IO_PIN_3
 #define BOARD_VLx_NCS        IO_PIN_4
 #define BOARD_VLx_SYNC       IO_PIN_5
