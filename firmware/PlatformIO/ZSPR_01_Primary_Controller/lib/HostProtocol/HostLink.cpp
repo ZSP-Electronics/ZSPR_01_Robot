@@ -103,6 +103,18 @@ void HostLink::_feedCliByte(uint8_t b) {
     }
 }
 
+uint8_t HostLink::dispatch(PacketCmd cmd, const uint8_t *payload, uint8_t len,
+                            uint8_t *respPayload, uint8_t &respLen) {
+    uint8_t rawCmd = static_cast<uint8_t>(cmd);
+    for (int i = 0; i < _handlerCount; i++) {
+        if (static_cast<uint8_t>(_handlers[i].cmd) == rawCmd) {
+            return _handlers[i].fn(payload, len, respPayload, respLen);
+        }
+    }
+    respLen = 0;
+    return static_cast<uint8_t>(PacketStatus::ERR_UNKNOWN_CMD);
+}
+
 void HostLink::_onFrameComplete(uint8_t crcByte) {
     uint8_t crcBuf[2 + PROTOCOL_MAX_PAYLOAD];
     crcBuf[0] = _rxLen;
@@ -112,17 +124,10 @@ void HostLink::_onFrameComplete(uint8_t crcByte) {
         return; // corrupt frame, silently drop -- host is expected to retry/timeout
     }
 
-    for (int i = 0; i < _handlerCount; i++) {
-        if (static_cast<uint8_t>(_handlers[i].cmd) == _rxCmd) {
-            uint8_t respPayload[PROTOCOL_MAX_PAYLOAD - 1];
-            uint8_t respLen = 0;
-            uint8_t status  = _handlers[i].fn(_rxPayload, _rxLen, respPayload, respLen);
-            _sendResponse(_rxCmd, status, respPayload, respLen);
-            return;
-        }
-    }
-
-    _sendResponse(_rxCmd, static_cast<uint8_t>(PacketStatus::ERR_UNKNOWN_CMD), nullptr, 0);
+    uint8_t respPayload[PROTOCOL_MAX_PAYLOAD - 1];
+    uint8_t respLen = 0;
+    uint8_t status = dispatch(static_cast<PacketCmd>(_rxCmd), _rxPayload, _rxLen, respPayload, respLen);
+    _sendResponse(_rxCmd, status, respPayload, respLen);
 }
 
 void HostLink::_sendResponse(uint8_t cmd, uint8_t status, const uint8_t *payload, uint8_t len) {

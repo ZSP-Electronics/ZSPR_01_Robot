@@ -374,6 +374,18 @@ public:
         }
     }
 
+    // Servo type (SCSERVOTYPE / STSERVOTYPE) of the servo with this bus ID,
+    // or -1 if it wasn't found at setup().
+    int servoTypeOf(uint8_t id) const
+    {
+        for (int i = 0; i < MAX_SERVO_NUM; i++)
+        {
+            if (servoData[i].servoID == id)
+                return servoData[i].ServoType;
+        }
+        return -1;
+    }
+
     uint8_t get_found_servos(void)
     {
         return foundServos;
@@ -382,6 +394,35 @@ public:
     int get_servo_id(uint8_t index)
     {
         return servoData[index].servoID;
+    }
+
+    struct Feedback
+    {
+        int16_t pos;
+        int16_t speed;
+        int16_t load;
+        uint8_t voltage;
+        int16_t temp;
+    };
+
+    // Most recently cached feedback for servo `id` (as of the last
+    // getFeedBack() call for that id, made every update()). False if `id`
+    // isn't one of the currently-tracked servoData[] slots.
+    bool get_feedback(uint8_t id, Feedback &out) const
+    {
+        for (int i = 0; i < foundServos; i++)
+        {
+            if (servoData[i].servoID == id)
+            {
+                out.pos = servoData[i].posRead;
+                out.speed = servoData[i].speedRead;
+                out.load = servoData[i].loadRead;
+                out.voltage = servoData[i].voltageRead;
+                out.temp = servoData[i].temperRead;
+                return true;
+            }
+        }
+        return false;
     }
 
 private:

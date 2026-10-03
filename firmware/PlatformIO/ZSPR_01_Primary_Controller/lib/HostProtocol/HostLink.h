@@ -29,6 +29,15 @@ public:
 
     void registerHandler(PacketCmd cmd, ProtocolHandler fn);
 
+    // Looks up and invokes the handler registered for `cmd` directly (no
+    // framing/CRC involved) -- shared by the real frame path
+    // (_onFrameComplete) and by anything else that wants to run a PacketCmd
+    // without a byte ever crossing the wire (e.g. a queued event). Returns
+    // PacketStatus::ERR_UNKNOWN_CMD (cast to uint8_t) if nothing is
+    // registered for `cmd`.
+    uint8_t dispatch(PacketCmd cmd, const uint8_t *payload, uint8_t len,
+                      uint8_t *respPayload, uint8_t &respLen);
+
 private:
     enum class State { IDLE, WAIT_SYNC1, LEN, CMD, PAYLOAD, CRC };
 

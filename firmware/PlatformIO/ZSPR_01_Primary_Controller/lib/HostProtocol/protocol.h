@@ -22,11 +22,19 @@ static constexpr uint8_t PROTOCOL_MAX_PAYLOAD = 200;
 
 enum class PacketCmd : uint8_t {
     PING              = 0x00,
+    CAPS_QUERY        = 0x01, // resp: capability bitmask (u16 LE), see RobotCapability
+    EVENT_POST        = 0x02, // payload: titleLen(u8), title bytes, command(u16 LE, a
+                               // PacketCmd value), dataLen(u8), data bytes
+                               // -> resp: assigned event id (u32 LE). Enqueues `command`
+                               // to run on a later loop() tick via the same dispatch
+                               // path as a synchronous frame -- this response only
+                               // acknowledges the enqueue, not the queued command's
+                               // own result (which is not pushed back to the host).
 
     SERVO_SET_POS     = 0x10, // payload: id, posLo, posHi, speedLo, speedHi, acc
     SERVO_SET_SPEED   = 0x11, // payload: id, speedLo, speedHi (s16), acc
     SERVO_SET_TORQUE  = 0x12, // payload: id, enable
-    SERVO_READ        = 0x13, // payload: id -> resp: pos(s16), speed(s16), load(s16), voltage, temp
+    SERVO_READ        = 0x13, // payload: id -> resp: pos(s16), speed(s16), load(s16), voltage(u8), temp(s16) [9 bytes]
 
     TOF_READ           = 0x20, // resp: 64x distance_mm (u16 LE), 8x8 zone-major order
 
@@ -43,6 +51,21 @@ enum class PacketCmd : uint8_t {
     SD_READ              = 0x61, // payload: path -> resp: file bytes
     SD_WRITE             = 0x62, // payload: path\0 + data -> resp: bytes written (u32)
     SD_DELETE            = 0x63, // payload: path -> resp: (none)
+};
+
+// One bit per ENABLE_* peripheral flag (see src/peripheral_config.h); queried
+// via PacketCmd::CAPS_QUERY so a host can discover what this robot body
+// supports before trying to use it.
+enum class RobotCapability : uint16_t {
+    SERVO         = 1 << 0,
+    TOF           = 1 << 1,
+    CURRENT_SENSE = 1 << 2,
+    TOUCH         = 1 << 3,
+    IMU_COMPASS   = 1 << 4,
+    SD            = 1 << 5,
+    DISPLAY_PANEL = 1 << 6, // named to avoid colliding with Arduino.h's `#define DISPLAY 0x1`
+    BUZZER        = 1 << 7,
+    BATTERY       = 1 << 8,
 };
 
 // Status byte, always the first byte of a response payload.

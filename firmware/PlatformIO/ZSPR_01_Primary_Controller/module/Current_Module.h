@@ -63,15 +63,8 @@ public:
     return_codes_t getData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
     return_codes_t setData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
 
-private:
-    uint16_t _sysVoltage_mV = 0;
-    int16_t _sysCurrent_mA = 0;
-    uint16_t _sysPower_mW = 0;
-
-    uint16_t _motorVoltage_mV = 0;
-    int16_t _motorCurrent_mA = 0;
-    uint16_t _motorPower_mW = 0;
-
+    // ProtocolHandler-shaped so HAL_Robot_Module's CURRENT_READ_SYS/MOTOR
+    // handlers can call it directly against currSys/currMotor.
     uint8_t readCurrentSensor(INA232 *sensor, uint8_t *resp, uint8_t &respLen)
     {
         putU16(resp + 0, (uint16_t)sensor->readBusVoltage_mV());
@@ -80,13 +73,12 @@ private:
         return ok(respLen, 6);
     }
 
-    uint8_t h_currSys(const uint8_t *, uint8_t, uint8_t *resp, uint8_t &respLen)
-    {
-        return readCurrentSensor(currSys, resp, respLen);
-    }
+private:
+    uint16_t _sysVoltage_mV = 0;
+    int16_t _sysCurrent_mA = 0;
+    uint16_t _sysPower_mW = 0;
 
-    uint8_t h_currMotor(const uint8_t *, uint8_t, uint8_t *resp, uint8_t &respLen)
-    {
-        return readCurrentSensor(currMotor, resp, respLen);
-    }
+    uint16_t _motorVoltage_mV = 0;
+    int16_t _motorCurrent_mA = 0;
+    uint16_t _motorPower_mW = 0;
 };

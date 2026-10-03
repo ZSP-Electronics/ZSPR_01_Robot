@@ -8,7 +8,8 @@
 // (see io_defines.h). Use these instead of the bare Arduino calls for any
 // pin that might be a BOARD_*/IO_PIN_* constant.
 //
-// `expander` is defined in main.cpp and must be begin()'d before use.
+// `expander` is defined in module/HAL_Robot_Module.cpp and must be begin()'d
+// before use.
 extern KTS1622_IO_Expander expander;
 
 inline void board_pinMode(int pin, uint8_t mode) {

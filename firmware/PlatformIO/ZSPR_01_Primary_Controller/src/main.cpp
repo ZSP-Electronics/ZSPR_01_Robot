@@ -1,13 +1,14 @@
 #include <Arduino.h>
-#include "system_functions.h"
+#include "HAL_Robot_Module.h"
 
+HAL_Robot_Module robot;
 
 void setup()
 {
-  system_setup();
+  robot.begin();
 }
 
 void loop()
 {
-  system_loop();
+  robot.update();
 }

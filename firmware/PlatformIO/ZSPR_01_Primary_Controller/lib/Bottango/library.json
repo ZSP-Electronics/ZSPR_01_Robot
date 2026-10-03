@@ -1,0 +1,10 @@
+{
+  "name": "Bottango",
+  "version": "0.8.0",
+  "description": "Bottango Arduino driver (BSD-3-Clause, vendored from EvanBottango/Bottango, API v9) patched to share the USB port with HostLink and to drive a virtual PCA9685.",
+  "build": {
+    "srcDir": ".",
+    "includeDir": ".",
+    "srcFilter": ["+<*.cpp>", "+<src/>", "-<*.ino>"]
+  }
+}
