@@ -6,7 +6,12 @@
 #include <Adafruit_MMC56x3.h>
 #include "hardware_config.h"
 #include "board_io.h"
-#include "protocol_handlers.h"
+
+#define IMU_ERROR_NONE 0x00
+#define IMU_ERROR_ACCEL 0x01
+#define IMU_ERROR_GYRO 0x02
+#define IMU_ERROR_MAG 0x04
+#define IMU_ERROR_HEADING 0x08
 
 class IMU_Module : public Universal_Module
 {
@@ -26,8 +31,14 @@ public:
             mag_initialized = _mag->begin(MMC56X3_DEFAULT_ADDRESS, &Wire);
             if (!imu_initialized || !mag_initialized)
             {
+                if (!imu_initialized)
+                    _error |= IMU_ERROR_ACCEL;
+                if (!mag_initialized)
+                    _error |= IMU_ERROR_MAG;
                 return ERROR;
             }
+            else 
+                _error = IMU_ERROR_NONE;
         }
         return SUCCESS;
     }
@@ -36,6 +47,9 @@ public:
     {
         if (_enabled)
         {
+            if (!imu_initialized || !mag_initialized)
+                return ERROR;
+
             _accelOk = readAccel(_ax, _ay, _az);
             _gyroOk = readGyro(_gx, _gy, _gz);
             _magOk = readMag(_mx, _my, _mz);
@@ -44,16 +58,30 @@ public:
             {
                 _heading = calculate_heading(_ax, _ay, _az, _mx, _my, _mz);
                 _headingOk = true;
+                _error &= ~IMU_ERROR_HEADING;
             }
             else
             {
                 _headingOk = false;
+                _error |= IMU_ERROR_HEADING;
             }
 
-            if (!_accelOk || !_magOk)
+            if (!_accelOk)
+                _error |= IMU_ERROR_ACCEL;
+            if (!_gyroOk)
+                _error |= IMU_ERROR_GYRO;
+            if (!_magOk)
+                _error |= IMU_ERROR_MAG;
+
+            if (!_accelOk || !_gyroOk || !_magOk)
                 return TIMEOUT;
         }
         return SUCCESS;
+    }
+
+    uint8_t get_error(void)
+    {
+        return _error;
     }
 
     /*******************/
@@ -69,26 +97,10 @@ public:
     bool is_mag_ok(void) const { return _magOk; }
     bool is_heading_ok(void) const { return _headingOk; }
 
-    return_codes_t getData(uint16_t *data, int argc, char **argv) override
-    {
-        if (_enabled)
-        {
-        }
-        return SUCCESS;
-    }
-
-    return_codes_t setData(uint16_t *data, int argc, char **argv) override
-    {
-        if (_enabled)
-        {
-            // Implement any setData functionality if needed
-        }
-        return SUCCESS;
-    }
-
 private:
     bool imu_initialized = false;
     bool mag_initialized = false;
+    uint8_t _error = IMU_ERROR_NONE;
 
     float _ax = 0, _ay = 0, _az = 0;
     float _gx = 0, _gy = 0, _gz = 0;

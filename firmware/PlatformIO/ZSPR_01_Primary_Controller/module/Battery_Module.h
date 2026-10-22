@@ -107,6 +107,7 @@ public:
             _lastPingMs = now;
             _lastCurrentPushMs = now;
 
+            _setupDone = true;
             return _linkStatus;
         }
         return SUCCESS;
@@ -116,6 +117,11 @@ public:
     {
         if (_enabled)
         {
+            // Gated on setup() having run (Serial2 started), not on link
+            // status: a failed ping must keep being retried from here.
+            if (!_setupDone)
+                return ERROR;
+
             poll();
 
             uint32_t now = millis();
@@ -223,10 +229,8 @@ public:
         return _voltagePending && (millis() - _voltageRequestMs < BATTERY_RESPONSE_TIMEOUT_MS);
     }
 
-    return_codes_t getData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
-    return_codes_t setData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
-
 private:
+    bool _setupDone = false;
     static constexpr uint32_t BATTERY_RESPONSE_TIMEOUT_MS = 200;
     static constexpr uint32_t BATTERY_PING_INTERVAL_MS = 500;
     static constexpr uint32_t BATTERY_CURRENT_PUSH_INTERVAL_MS = 250;

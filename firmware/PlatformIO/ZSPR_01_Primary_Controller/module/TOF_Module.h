@@ -5,7 +5,7 @@
 #include <vl53l8cx.h>
 #include "hardware_config.h"
 #include "board_io.h"
-#include "protocol_handlers.h"
+// #include "protocol_handlers.h"
 
 #define VL53L8CX_NB_SPAD 64
 
@@ -33,10 +33,7 @@ public:
             {
                 // Start Measurements
                 _status = sensor_vl53l8cx_top->start_ranging();
-            }
-            else
-            {
-                Serial.printf("[tof] init failed, status=%u\r\n", _status);
+                _initialized = (_status == VL53L8CX_STATUS_OK);
             }
 
             uint8_t isDataReady = 0;
@@ -57,6 +54,9 @@ public:
         return_codes_t code = ERROR;
         if (_enabled)
         {
+            if (!_initialized)
+                return code;
+
             uint8_t isDataReady = 0;
 
             // do
@@ -234,17 +234,9 @@ public:
         _EnableSignal = (_EnableSignal) ? false : true;
     }
 
-    return_codes_t getData(uint16_t *data, int argc, char **argv) override
-    {
-        return SUCCESS;
-    }
-
-    return_codes_t setData(uint16_t *data, int argc, char **argv) override
-    {
-        return SUCCESS;
-    }
 
 private:
+    bool _initialized = false;
     VL53L8CX *sensor_vl53l8cx_top;
 
     uint8_t NewDataReady = 0;

@@ -67,25 +67,25 @@ void HAL_Robot_Module::update()
 {
     hostLink.poll();
 
-    RobotEvent evt;
-    if (_eventQueue && xQueueReceive(_eventQueue, &evt, 0) == pdTRUE)
-    {
-        uint8_t respPayload[PROTOCOL_MAX_PAYLOAD - 1];
-        uint8_t respLen = 0;
-        uint8_t status = hostLink.dispatch(evt.command, evt.data, evt.dataLen, respPayload, respLen);
-#ifdef DEBUG
-        Serial.printf("[event %lu \"%s\"] dispatched cmd=0x%02X status=0x%02X\r\n",
-                      (unsigned long)evt.id, evt.title, (uint8_t)evt.command, status);
-#endif
-        (void)status; // queued events are fire-and-forget: result isn't pushed back to the host
-    }
+    //     RobotEvent evt;
+    //     if (_eventQueue && xQueueReceive(_eventQueue, &evt, 0) == pdTRUE)
+    //     {
+    //         uint8_t respPayload[PROTOCOL_MAX_PAYLOAD - 1];
+    //         uint8_t respLen = 0;
+    //         uint8_t status = hostLink.dispatch(evt.command, evt.data, evt.dataLen, respPayload, respLen);
+    // #ifdef DEBUG
+    //         Serial.printf("[event %lu \"%s\"] dispatched cmd=0x%02X status=0x%02X\r\n",
+    //                       (unsigned long)evt.id, evt.title, (uint8_t)evt.command, status);
+    // #endif
+    //         (void)status; // queued events are fire-and-forget: result isn't pushed back to the host
+    //     }
 
     hardware_update();
 }
 
 bool HAL_Robot_Module::post_event(const char *title, uint8_t titleLen,
-                                   PacketCmd command, const uint8_t *data, uint8_t dataLen,
-                                   uint32_t &outId)
+                                  PacketCmd command, const uint8_t *data, uint8_t dataLen,
+                                  uint32_t &outId)
 {
     if (!_eventQueue)
         return false;
@@ -118,20 +118,23 @@ void HAL_Robot_Module::hardware_setup()
 {
     /* Initialize serial communication */
     Serial.begin(115200); // USB CDC Connection
+    // Serial.setDebugOutput(true);
+    delay(5000);
 
-    SPI.begin(BOARD_SCLK, BOARD_MISO, BOARD_MOSI);
+    // SPI.begin() happens after the display init below: the panel's 9-bit
+    // config bus is bit-banged on the same SCLK/MOSI pins, which are only
+    // handed to the SPI peripheral (ToF, SD) once the panel is done with them.
 
     Wire.begin(BOARD_I2C_SDA, BOARD_I2C_SCL);
     Wire.setClock(400000); // Set I2C frequency to 400kHz
 
     // ESP IO Config
-    board_pinMode(BOARD_IO2_INT, INPUT);
-    board_pinMode(BOARD_IO2_RST, OUTPUT);
-    board_digitalWrite(BOARD_IO2_RST, HIGH);
+    board_pinMode(BOARD_IO_INT, INPUT);
+    board_pinMode(BOARD_IO_RST, OUTPUT);
+    board_digitalWrite(BOARD_IO_RST, HIGH);
 
     expander_ok = expander.begin();
 
-    board_pinMode(BOARD_IO1_INT, INPUT);
     board_pinMode(BOARD_VLx_SPI_N, OUTPUT);
     board_pinMode(BOARD_VLx_NCS, OUTPUT);
     board_pinMode(BOARD_VLx_SYNC, OUTPUT);
@@ -141,6 +144,7 @@ void HAL_Robot_Module::hardware_setup()
     board_pinMode(BOARD_SENSE_CHG, OUTPUT);
     board_pinMode(BOARD_TFT_RST, OUTPUT);
     board_pinMode(BOARD_TFT_CS, OUTPUT);
+    board_pinMode(BOARD_TFT_BL, OUTPUT);
     board_pinMode(BOARD_TOUCH_IRQ, INPUT);
     board_pinMode(BOARD_TOUCH_RST, OUTPUT);
     board_pinMode(BOARD_SDMMC_CS, OUTPUT);
@@ -152,24 +156,51 @@ void HAL_Robot_Module::hardware_setup()
     board_pinMode(BOARD_IMU_INT1, INPUT);
     board_pinMode(BOARD_IMU_INT2, INPUT);
     board_pinMode(BOARD_LED, OUTPUT);
-    board_pinMode(BOARD_TFT_BL, OUTPUT);
+    board_pinMode(BOARD_LED2, OUTPUT);
     board_pinMode(BOARD_CHG_EN, OUTPUT);
     board_pinMode(BOARD_CHG_DETECT, INPUT);
     board_pinMode(BOARD_CURR_ALERT1, INPUT);
     board_pinMode(BOARD_CURR_ALERT2, INPUT);
     board_pinMode(BOARD_REG_EN, OUTPUT);
 
+    board_digitalWrite(BOARD_REG_EN, LOW);
+
 #if TEST
-    board_digitalWrite(BOARD_REG_EN, HIGH);
     board_digitalWrite(BOARD_LED, LOW);
+    board_digitalWrite(BOARD_LED2, LOW);
+#endif
+
+    // Keep the other SPI devices deselected while the display owns SCLK/MOSI.
+    board_digitalWrite(BOARD_VLx_NCS, HIGH);
+    board_digitalWrite(BOARD_SDMMC_CS, HIGH);
+
+#if ENABLE_DISPLAY
+    display_ok = (display_module.setup() == SUCCESS); // bit-bangs the panel init, then releases SCLK/MOSI
+    if (!display_ok)
+      Serial.println("[display] init failed, continuing without display");
+    display_module.spr.fillScreen(RED);
+#endif
+
+    SPI.begin(BOARD_SCLK, BOARD_MISO, BOARD_MOSI);
+
+    // display_module.activate_robot_face();
+    // display_module.draw_splash_screen();
+    // display_module.update();
+    // display_module.boot_log_begin();
+    // display_module.boot_log("Display", display_ok);
+#if ENABLE_TOUCH
+    // display_module.boot_log_touch();
 #endif
 
 #if ENABLE_CURRENT_SENSE
     current_module_ok = current_module.setup();
+    // display_module.boot_log("Current", current_module_ok);
+    // display_module.spr.
 #endif
 
 #if ENABLE_SERVO
     servo_module_ok = servo_module.setup();
+    // display_module.boot_log("Servo", servo_module_ok);
 #endif
 
 #if ENABLE_BOTTANGO
@@ -180,14 +211,17 @@ void HAL_Robot_Module::hardware_setup()
 
 #if ENABLE_IMU_COMPASS
     imu_module_ok = imu_module.setup();
+    // display_module.boot_log("IMU", imu_module_ok);
 #endif
 
 #if ENABLE_TOF
     tof_module_ok = tof_module.setup();
+    // display_module.boot_log("ToF", tof_module_ok);
 #endif
 
 #if ENABLE_SD
     sdcard_module_ok = sdcard_module.setup();
+    // display_module.boot_log("SD Card", sdcard_module_ok);
 #endif
 
 #if ENABLE_BATTERY
@@ -195,6 +229,7 @@ void HAL_Robot_Module::hardware_setup()
     battery_module.attach_current_source(&HAL_Robot_Module::s_battery_current_source);
 #endif
     battery_module_ok = battery_module.setup();
+    // display_module.boot_log("Battery", battery_module_ok);
 #endif
 }
 
@@ -222,6 +257,16 @@ void HAL_Robot_Module::hardware_update()
 
 #if ENABLE_BATTERY
     battery_module.update();
+#endif
+
+#if TEST
+    board_togglePin(BOARD_LED);
+    board_togglePin(BOARD_LED2);
+    delay(10);
+#endif
+
+#if ENABLE_DISPLAY
+    display_module.update();
 #endif
 }
 
@@ -389,6 +434,44 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
     {
         cliSerial->println("> [WARNING] Test only one peripherial at a time");
     }
+    // Per-peripheral init gate: report a failed setup() instead of running
+    // the test against hardware that never came up.
+#if ENABLE_CURRENT_SENSE
+    else if (_current && current_module_ok != SUCCESS)
+    {
+        cliSerial->println("> [current] initialization failed");
+    }
+#endif
+#if ENABLE_SERVO
+    else if (_servo && servo_module_ok != SUCCESS)
+    {
+        cliSerial->println("> [servo] initialization failed");
+    }
+#endif
+#if ENABLE_TOF
+    else if (_tof && tof_module_ok != SUCCESS)
+    {
+        cliSerial->println("> [tof] initialization failed");
+    }
+#endif
+#if ENABLE_IMU_COMPASS
+    else if (_imu && imu_module_ok != SUCCESS)
+    {
+        cliSerial->println("> [imu] initialization failed");
+    }
+#endif
+#if ENABLE_SD
+    else if (_sdcard && sdcard_module_ok != SUCCESS)
+    {
+        cliSerial->println("> [sdcard] initialization failed");
+    }
+#endif
+#if ENABLE_BATTERY
+    else if (_battery && battery_module_ok != SUCCESS)
+    {
+        cliSerial->println("> [battery] initialization failed");
+    }
+#endif
     else if (_current)
     {
 #if ENABLE_CURRENT_SENSE
@@ -397,12 +480,12 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
         while (!cliSerial->available())
         {
             cliSerial->printf("> [SYS]   bus=%.1fmV current=%.1fmA power=%.1fmW\t\t[MTR] bus=%.1fmV current=%.1fmA power=%.1fmW\r\n",
-                               current_module.currSys->readBusVoltage_mV(),
-                               current_module.currSys->readCurrent_mA(),
-                               current_module.currSys->readPower_mW(),
-                               current_module.currMotor->readBusVoltage_mV(),
-                               current_module.currMotor->readCurrent_mA(),
-                               current_module.currMotor->readPower_mW());
+                              current_module.currSys->readBusVoltage_mV(),
+                              current_module.currSys->readCurrent_mA(),
+                              current_module.currSys->readPower_mW(),
+                              current_module.currMotor->readBusVoltage_mV(),
+                              current_module.currMotor->readCurrent_mA(),
+                              current_module.currMotor->readPower_mW());
             delay(200);
         }
         drainSerialAndStop();
@@ -431,16 +514,16 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
                 if (isST)
                 {
                     cliSerial->printf("> [servo %d] pos=%d speed=%d load=%d voltage=%u current=%d temp=%d\r\n",
-                                       id, servo_module.st.ReadPos(id), servo_module.st.ReadSpeed(id),
-                                       servo_module.st.ReadLoad(id), servo_module.st.ReadVoltage(id),
-                                       servo_module.st.ReadCurrent(id), servo_module.st.ReadTemper(id));
+                                      id, servo_module.st.ReadPos(id), servo_module.st.ReadSpeed(id),
+                                      servo_module.st.ReadLoad(id), servo_module.st.ReadVoltage(id),
+                                      servo_module.st.ReadCurrent(id), servo_module.st.ReadTemper(id));
                 }
                 else if (isSC)
                 {
                     cliSerial->printf("> [servo %d] pos=%d speed=%d load=%d voltage=%u current=%d temp=%d\r\n",
-                                       id, servo_module.sc.ReadPos(id), servo_module.sc.ReadSpeed(id),
-                                       servo_module.sc.ReadLoad(id), servo_module.sc.ReadVoltage(id),
-                                       servo_module.sc.ReadCurrent(id), servo_module.sc.ReadTemper(id));
+                                      id, servo_module.sc.ReadPos(id), servo_module.sc.ReadSpeed(id),
+                                      servo_module.sc.ReadLoad(id), servo_module.sc.ReadVoltage(id),
+                                      servo_module.sc.ReadCurrent(id), servo_module.sc.ReadTemper(id));
                 }
                 else
                 {
@@ -499,9 +582,9 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
             imu_module.get_mag(mx, my, mz);
 
             cliSerial->printf("> [imu raw] accel(g)=%.2f,%.2f,%.2f%s gyro(dps)=%.2f,%.2f,%.2f%s mag(uT)=%.1f,%.1f,%.1f%s\r\n",
-                               ax, ay, az, imu_module.is_accel_ok() ? "" : "(stale)",
-                               gx, gy, gz, imu_module.is_gyro_ok() ? "" : "(stale)",
-                               mx, my, mz, imu_module.is_mag_ok() ? "" : "(stale)");
+                              ax, ay, az, imu_module.is_accel_ok() ? "" : "(stale)",
+                              gx, gy, gz, imu_module.is_gyro_ok() ? "" : "(stale)",
+                              mx, my, mz, imu_module.is_mag_ok() ? "" : "(stale)");
 
             if (imu_module.is_heading_ok())
             {
@@ -560,9 +643,9 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
         if (sdcard_module.is_mounted())
         {
             cliSerial->printf("> [sdcard] mounted, fatType=%u totalKB=%llu freeKB=%llu\r\n",
-                               sdcard_module.fat_type(),
-                               (unsigned long long)sdcard_module.total_space_kb(),
-                               (unsigned long long)sdcard_module.free_space_kb());
+                              sdcard_module.fat_type(),
+                              (unsigned long long)sdcard_module.total_space_kb(),
+                              (unsigned long long)sdcard_module.free_space_kb());
             cliSerial->println("> [sdcard] root listing:");
             uint16_t entries = sdcard_module.print_root_listing(*cliSerial);
             cliSerial->printf("> [sdcard] %u entries\r\n", entries);
@@ -575,8 +658,8 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
         while (!cliSerial->available())
         {
             cliSerial->printf("> [sdcard raw] mounted=%s detect_pin=%s\r\n",
-                               sdcard_module.is_mounted() ? "yes" : "no",
-                               sdcard_module.get_card_detect_raw() ? "HIGH" : "LOW");
+                              sdcard_module.is_mounted() ? "yes" : "no",
+                              sdcard_module.get_card_detect_raw() ? "HIGH" : "LOW");
             delay(500);
         }
         drainSerialAndStop();
@@ -601,9 +684,9 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
             }
 
             cliSerial->printf("> [battery] link=%s pingFails=%u pushSuspended=%s",
-                               battery_module.is_link_up() ? "UP" : "DOWN",
-                               battery_module.get_consecutive_ping_failures(),
-                               battery_module.current_push_suspended() ? "yes" : "no");
+                              battery_module.is_link_up() ? "UP" : "DOWN",
+                              battery_module.get_consecutive_ping_failures(),
+                              battery_module.current_push_suspended() ? "yes" : "no");
 
             if (battery_module.has_battery_voltage())
                 cliSerial->printf(" voltage=%.2fV\r\n", battery_module.get_battery_voltage_mV() / 1000.0f);
@@ -617,6 +700,9 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
         cliSerial->println("> [ERROR] Peripherial not Supported");
 #endif
     }
+    /*********************/
+    /*  TEST self-check  */
+    /*********************/
     else
     {
         cliSerial->println("\n===== TEST self-check =====");
@@ -640,43 +726,60 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
 
 #if ENABLE_TOF
         cliSerial->printf("[tof] init=%s dataReady=%s\r\n",
-                           tof_module_ok == SUCCESS ? "OK" : "FAILED",
-                           tof_module.is_data_ready() ? "yes" : "no");
+                          tof_module_ok == SUCCESS ? "OK" : "FAILED",
+                          tof_module.is_data_ready() ? "yes" : "no");
 #endif
 
 #if ENABLE_CURRENT_SENSE
         cliSerial->printf("[curr sys]   init=%s bus=%.1fmV current=%.1fmA power=%.1fmW\r\n",
-                           current_module_ok == SUCCESS ? "OK" : "FAILED",
-                           current_module.currSys->readBusVoltage_mV(), current_module.currSys->readCurrent_mA(), current_module.currSys->readPower_mW());
+                          current_module_ok == SUCCESS ? "OK" : "FAILED",
+                          current_module.currSys->readBusVoltage_mV(), current_module.currSys->readCurrent_mA(), current_module.currSys->readPower_mW());
         cliSerial->printf("[curr motor] init=%s bus=%.1fmV current=%.1fmA power=%.1fmW\r\n",
-                           current_module_ok == SUCCESS ? "OK" : "FAILED",
-                           current_module.currMotor->readBusVoltage_mV(), current_module.currMotor->readCurrent_mA(), current_module.currMotor->readPower_mW());
+                          current_module_ok == SUCCESS ? "OK" : "FAILED",
+                          current_module.currMotor->readBusVoltage_mV(), current_module.currMotor->readCurrent_mA(), current_module.currMotor->readPower_mW());
 #endif
 
 #if ENABLE_IMU_COMPASS
-        imu_module.update();
-        float ax, ay, az, gx, gy, gz, mx, my, mz;
-        imu_module.get_accel(ax, ay, az);
-        imu_module.get_gyro(gx, gy, gz);
-        imu_module.get_mag(mx, my, mz);
-        cliSerial->printf("[imu]     init=%s accel(g)=%.2f,%.2f,%.2f gyro(dps)=%.2f,%.2f,%.2f mag(uT)=%.1f,%.1f,%.1f\r\n",
-                           imu_module_ok == SUCCESS ? "OK" : "FAILED",
-                           ax, ay, az, gx, gy, gz, mx, my, mz);
-        if (imu_module.is_heading_ok())
+        uint8_t imu_error = imu_module.get_error();
+        if (imu_error > 0)
         {
-            cliSerial->printf("[compass] heading=%.1fdeg\r\n", imu_module.get_heading());
+            // cliSerial->printf("[imu] error=0x%02X\r\n", imu_error);
+            uint8_t imu_accel_error = imu_error & IMU_ERROR_ACCEL;
+            uint8_t imu_gyro_error = imu_error & IMU_ERROR_GYRO;
+            uint8_t imu_mag_error = imu_error & IMU_ERROR_MAG;
+            uint8_t imu_heading_error = imu_error & IMU_ERROR_HEADING;
+            cliSerial->printf("[imu] initialization failed accel=%s gyro=%s mag=%s heading=%s\r\n",
+                              imu_accel_error ? "FAILED" : "OK",
+                              imu_gyro_error ? "FAILED" : "OK",
+                              imu_mag_error ? "FAILED" : "OK",
+                              imu_heading_error ? "FAILED" : "OK");
         }
         else
         {
-            cliSerial->println("[compass] heading=FAILED");
+            imu_module.update();
+            float ax, ay, az, gx, gy, gz, mx, my, mz;
+            imu_module.get_accel(ax, ay, az);
+            imu_module.get_gyro(gx, gy, gz);
+            imu_module.get_mag(mx, my, mz);
+            cliSerial->printf("[imu]     init=%s accel(g)=%.2f,%.2f,%.2f gyro(dps)=%.2f,%.2f,%.2f mag(uT)=%.1f,%.1f,%.1f\r\n",
+                              imu_module_ok == SUCCESS ? "OK" : "FAILED",
+                              ax, ay, az, gx, gy, gz, mx, my, mz);
+            if (imu_module.is_heading_ok())
+            {
+                cliSerial->printf("[compass] heading=%.1fdeg\r\n", imu_module.get_heading());
+            }
+            else
+            {
+                cliSerial->println("[compass] heading=FAILED");
+            }
         }
 #endif
 
 #if ENABLE_SD
         cliSerial->printf("[sd] init=%s mounted=%s freeKB=%llu\r\n",
-                           sdcard_module_ok == SUCCESS ? "OK" : "FAILED",
-                           sdcard_module.is_mounted() ? "yes" : "no",
-                           (unsigned long long)sdcard_module.free_space_kb());
+                          sdcard_module_ok == SUCCESS ? "OK" : "FAILED",
+                          sdcard_module.is_mounted() ? "yes" : "no",
+                          (unsigned long long)sdcard_module.free_space_kb());
 #endif
 
 #if ENABLE_DISPLAY
@@ -685,9 +788,9 @@ void HAL_Robot_Module::testPeriphCallback(cmd *cmdPtr)
 
 #if ENABLE_BATTERY
         cliSerial->printf("[battery] init=%s link=%s pingFails=%u\r\n",
-                           battery_module_ok == SUCCESS ? "OK" : "FAILED",
-                           battery_module.is_link_up() ? "UP" : "DOWN",
-                           battery_module.get_consecutive_ping_failures());
+                          battery_module_ok == SUCCESS ? "OK" : "FAILED",
+                          battery_module.is_link_up() ? "UP" : "DOWN",
+                          battery_module.get_consecutive_ping_failures());
 #endif
 
         cliSerial->println("============================\n");
@@ -980,8 +1083,8 @@ uint8_t HAL_Robot_Module::sdListHandler(const uint8_t *p, uint8_t len, uint8_t *
 {
 #if ENABLE_SD
     bool rootRequested = (len == 0) ||
-                          (len == 1 && (p[0] == '\0' || p[0] == '/')) ||
-                          (len == 2 && p[0] == '/' && p[1] == '\0');
+                         (len == 1 && (p[0] == '\0' || p[0] == '/')) ||
+                         (len == 2 && p[0] == '/' && p[1] == '\0');
     if (!rootRequested)
         return fail(respLen, PacketStatus::ERR_BAD_ARGS); // only root listing is supported
     if (!sdcard_module.is_mounted())

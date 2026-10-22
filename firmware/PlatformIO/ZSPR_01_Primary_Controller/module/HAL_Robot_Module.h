@@ -19,7 +19,7 @@
 #include "Universal_Module.h"
 #include "Current_Module.h"
 #include "Servo_Module.h"
-#include "Bottango_Module.h"
+// #include "Bottango_Module.h"
 #include "Display_Module.h"
 #include "IMU_Module.h"
 #include "TOF_Module.h"
@@ -89,6 +89,7 @@ private:
     // anywhere in the codebase (including inside other modules' headers)
     // resolves to that one global by name, so it can't be a class member.
     bool expander_ok = false;
+    bool display_ok = false;
 
 #if ENABLE_BUZZER
     Buzzer buzzer{BOARD_BUZZER};

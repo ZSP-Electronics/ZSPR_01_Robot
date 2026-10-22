@@ -5,7 +5,6 @@
 #include <SCServo.h>
 #include "hardware_config.h"
 #include "board_io.h"
-#include "protocol_handlers.h"
 
 #define SCSERVOTYPE 5
 #define STSERVOTYPE 9
@@ -65,12 +64,7 @@ public:
             {
 
                 if (millis() - start_time > 1000)
-                {
-#ifdef DEBUG
-                    Serial.println("Serial1 not ready after 1 second");
-#endif
                     return ERROR;
-                }
             }
 
             int PingStatus, starting_index = 0;
@@ -106,6 +100,7 @@ public:
 
             Serial.println("Active Servos: " + String(foundServos));
 #endif
+            _initialized = true;
         }
         return SUCCESS;
     }
@@ -114,6 +109,9 @@ public:
     {
         if (_enabled)
         {
+            if (!_initialized)
+                return ERROR;
+
             for (int i = 0; i < foundServos; i++)
             {
                 getFeedBack(servoData[i].servoID);
@@ -123,15 +121,6 @@ public:
         return SUCCESS;
     }
 
-    return_codes_t getData(uint16_t *data, int argc, char **argv) override
-    {
-        return SUCCESS;
-    }
-
-    return_codes_t setData(uint16_t *data, int argc, char **argv) override
-    {
-        return SUCCESS;
-    }
 
     /*******************/
     /* SERVO FUNCTIONS */
@@ -426,6 +415,7 @@ public:
     }
 
 private:
+    bool _initialized = false;
     int MAX_MIN_OFFSET = 30;
     int foundServos = 0;
 

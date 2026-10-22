@@ -35,13 +35,8 @@ public:
             _ok2 = currMotor->begin();
             currMotor->setCalibration(MOTOR_OHM, CURRENT_MAX);
 
-            if (!_ok1 || !_ok2)
-            {
-                Serial.println("INA232 not found");
-                code = ERROR;
-            }
-            else
-                code = SUCCESS;
+            _initialized = _ok1 && _ok2;
+            code = _initialized ? SUCCESS : ERROR;
         }
 
         return code;
@@ -49,6 +44,9 @@ public:
 
     return_codes_t update() override
     {
+        if (!_enabled || !_initialized)
+            return ERROR;
+
         _sysVoltage_mV = currSys->readBusVoltage_mV();
         _sysCurrent_mA = currSys->readCurrent_mA();
         _sysPower_mW = currSys->readPower_mW();
@@ -59,9 +57,6 @@ public:
 
         return SUCCESS;
     }
-
-    return_codes_t getData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
-    return_codes_t setData(uint16_t *data, int argc, char **argv) override { return SUCCESS; }
 
     // ProtocolHandler-shaped so HAL_Robot_Module's CURRENT_READ_SYS/MOTOR
     // handlers can call it directly against currSys/currMotor.
@@ -74,6 +69,8 @@ public:
     }
 
 private:
+    bool _initialized = false;
+
     uint16_t _sysVoltage_mV = 0;
     int16_t _sysCurrent_mA = 0;
     uint16_t _sysPower_mW = 0;

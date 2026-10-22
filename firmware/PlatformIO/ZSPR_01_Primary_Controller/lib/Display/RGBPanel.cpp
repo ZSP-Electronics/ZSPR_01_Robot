@@ -19,228 +19,148 @@
 static const lcd_init_cmd_t *_init_cmd = NULL;
 
 RGBPanel::RGBPanel(/* args */)
-  : _brightness(0), _panelDrv(NULL),
-    _order(RGB_ORDER_RGB),
-    _has_init(false),
-    _IO_Init(false)
-     {
+    : _brightness(0), _panelDrv(NULL),
+      _order(RGB_ORDER_RGB),
+      _has_init(false),
+      _IO_Init(false)
+{
 }
 
-RGBPanel::~RGBPanel() {
-  if (_panelDrv) {
+RGBPanel::~RGBPanel()
+{
+  releaseBus();
+  if (_panelDrv)
+  {
     esp_lcd_panel_del(_panelDrv);
     _panelDrv = NULL;
   }
 }
 
-bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, bool IO_Init) {
-  if (_panelDrv) {
+bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, bool IO_Init)
+{
+  if (_panelDrv)
+  {
     return true;
   }
+  _init_cmd = st7701_2_8_inches;
 
   _order = order;
   _disp = disp;
   _IO_Init = IO_Init;
-  initDevice();
 
-  return true;
-}
-
-void RGBPanel::initDevice() {
-  if(_IO_Init) {
+  if (_IO_Init)
+  {
     board_pinMode(_disp->cs_pin, OUTPUT);
     board_pinMode(_disp->rst_pin, OUTPUT);
     board_pinMode(_disp->bl_pin, OUTPUT);
   }
 
-  board_digitalWrite(_disp->bl_pin, HIGH);
-  board_digitalWrite(_disp->cs_pin, HIGH);
+  Panel_Reset();
 
-  _init_cmd = st7701_2_8_inches;
+  spi_bus_config_t buscfg = {
+      .mosi_io_num = _disp->sda_pin,
+      .miso_io_num = -1,
+      .sclk_io_num = _disp->sck_pin,
+      .quadwp_io_num = -1,
+      .quadhd_io_num = -1,
+      .max_transfer_sz = 64, // ESP32 S3 max size is 64Kbytes
+  };
+  esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+  assert(ret == ESP_OK);
 
-  initBUS();
-}
+  spi_device_interface_config_t devcfg = {
+      .command_bits = 1,
+      .address_bits = 8,
+      .mode = SPI_MODE0,
+      .clock_speed_hz = 40000000,
+      .spics_io_num = -1,
+      .queue_size = 1, // Not using queues
+  };
+  ret = spi_bus_add_device(SPI2_HOST, &devcfg, &SPI_handle);
+  assert(ret == ESP_OK);
 
+  Panel_CS_EN();
 
-void RGBPanel::setBrightness(uint8_t value) {
-  if(value > 0){
-    board_digitalWrite(_disp->bl_pin, HIGH);
-  } else {
-    board_digitalWrite(_disp->bl_pin, LOW);
-  }
-  _brightness = value;
-}
-
-uint8_t RGBPanel::getBrightness() {
-  return _brightness;
-}
-
-
-uint16_t RGBPanel::width() {
-  return _disp->width;
-}
-
-uint16_t RGBPanel::height() {
-  return _disp->height;
-}
-
-void RGBPanel::initBUS() {
-  log_i("=================initBus====================");
-  assert(_init_cmd);
-
-  if (_panelDrv) {
-    return;
-  }
-
-  board_digitalWrite(_disp->rst_pin, LOW);
-  delay(20);
-  board_digitalWrite(_disp->rst_pin, HIGH);
-  delay(10);
-
-  Wire.setClock(1000000UL);
-  // uint32_t start = millis();
-
-#if defined(T_RGB_HARDWARE)
-  extension.beginSPI(mosi, -1, sclk, cs);
-#endif
-
-  board_digitalWrite(_disp->cs_pin, LOW);
-
-  int i = 0;
-  while (_init_cmd[i].databytes != 0xff) {
+  for (int i = 0; i < ST7701_2_8_INCH_DATA_COMMANDS; i++)
+  {
     writeCommand(_init_cmd[i].cmd);
-    writeData(_init_cmd[i].data, _init_cmd[i].databytes & 0x1F);
-    if (_init_cmd[i].databytes & 0x80) {
-      delay(100);
+    writeData(_init_cmd[i].data, _init_cmd[i].databytes);
+    if (_init_cmd[i].delay > 0)
+    {
+      delay(_init_cmd[i].delay);
     }
-    i++;
   }
-
-  board_digitalWrite(_disp->cs_pin, HIGH);
+  Panel_CS_DIS();
 
   log_i("=================Complete Init Cmd====================");
 
-  // uint32_t end = millis();
-
-  // Serial.printf("Initialization took %u milliseconds\n", end - start);
-
-  // Uses 400k I2C speed : Initialization took about 6229 milliseconds
-  // Uses 1M   I2C speed : Initialization took about 1833 milliseconds
-
-  // Reduce to standard speed, touch does not support access greater than 400KHZ speed
-  Wire.setClock(400000UL);
-
-
   const int bus_rbg_order[SOC_LCD_RGB_DATA_WIDTH] = {
-    // BOARD_TFT_DATA12,    //LSB
-    _disp->r1_pin,
-    _disp->r2_pin,
-    _disp->r3_pin,
-    _disp->r4_pin,
-    _disp->r5_pin,
+      // BOARD_TFT_DATA12,    //LSB
+      _disp->r1_pin,
+      _disp->r2_pin,
+      _disp->r3_pin,
+      _disp->r4_pin,
+      _disp->r5_pin,
 
-    _disp->g1_pin,
-    _disp->g2_pin,
-    _disp->g3_pin,
-    _disp->g4_pin,
-    _disp->g5_pin,
+      _disp->g1_pin,
+      _disp->g2_pin,
+      _disp->g3_pin,
+      _disp->g4_pin,
+      _disp->g5_pin,
 
-    // BOARD_TFT_DATA6,     //LSB
-    _disp->b1_pin,
-    _disp->b2_pin,
-    _disp->b3_pin,
-    _disp->b4_pin,
-    _disp->b5_pin,
+      // BOARD_TFT_DATA6,     //LSB
+      _disp->b1_pin,
+      _disp->b2_pin,
+      _disp->b3_pin,
+      _disp->b4_pin,
+      _disp->b5_pin,
   };
 
   esp_lcd_rgb_panel_config_t panel_config = {
-    .clk_src = LCD_CLK_SRC_PLL160M,
-    .timings = {
-      .pclk_hz = _disp->pclk_freq,
-      .h_res = _disp->width,
-      .v_res = _disp->height,
-      // The following parameters should refer to LCD spec
-      .hsync_pulse_width = 1,
-      .hsync_back_porch = 30,
-      .hsync_front_porch = 50,
-      .vsync_pulse_width = 1,
-      .vsync_back_porch = 30,
-      .vsync_front_porch = 20,
-      .flags = {
-        .pclk_active_neg = 1,
+      .clk_src = LCD_CLK_SRC_PLL160M, // LCD_CLK_SRC_PLL160M   LCD_CLK_SRC_PLL240M   LCD_CLK_SRC_XTAL   LCD_CLK_SRC_DEFAULT
+      .timings = {
+          .pclk_hz = _disp->pclk_freq,
+          .h_res = _disp->width,
+          .v_res = _disp->height,
+          // The following parameters should refer to LCD spec
+          .hsync_pulse_width = 1,
+          .hsync_back_porch = 30,
+          .hsync_front_porch = 50,
+          .vsync_pulse_width = 1,
+          .vsync_back_porch = 30,
+          .vsync_front_porch = 20,
+          .flags = {
+              .pclk_active_neg = 1,
+          },
       },
-    },
-    .data_width = 16,  // RGB565 in parallel mode, thus 16bit in width
-    .psram_trans_align = 64,
-    .hsync_gpio_num = _disp->hsync_pin,
-    .vsync_gpio_num = _disp->vsync_pin,
-    .de_gpio_num = _disp->de_pin,
-    .pclk_gpio_num = _disp->pclk_pin,
+      .data_width = 16, // RGB565 in parallel mode, thus 16bit in width
+      .psram_trans_align = 64,
+      .hsync_gpio_num = _disp->hsync_pin,
+      .vsync_gpio_num = _disp->vsync_pin,
+      .de_gpio_num = _disp->de_pin,
+      .pclk_gpio_num = _disp->pclk_pin,
 
-#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
-    .disp_gpio_num = GPIO_NUM_NC,
-    .data_gpio_nums = {
-      // BOARD_TFT_DATA0,
-      BOARD_TFT_DATA13,
-      BOARD_TFT_DATA14,
-      BOARD_TFT_DATA15,
-      BOARD_TFT_DATA16,
-      BOARD_TFT_DATA17,
-
-      BOARD_TFT_DATA6,
-      BOARD_TFT_DATA7,
-      BOARD_TFT_DATA8,
-      BOARD_TFT_DATA9,
-      BOARD_TFT_DATA10,
-      BOARD_TFT_DATA11,
-      // BOARD_TFT_DATA12,
-
-      BOARD_TFT_DATA1,
-      BOARD_TFT_DATA2,
-      BOARD_TFT_DATA3,
-      BOARD_TFT_DATA4,
-      BOARD_TFT_DATA5,
-    },
-#else
-    .data_gpio_nums = {
-    // BOARD_TFT_DATA12,    //LSB
-    _disp->r1_pin,
-    _disp->r2_pin,
-    _disp->r3_pin,
-    _disp->r4_pin,
-    _disp->r5_pin,
-
-    _disp->g1_pin,
-    _disp->g2_pin,
-    _disp->g3_pin,
-    _disp->g4_pin,
-    _disp->g5_pin,
-
-    // BOARD_TFT_DATA6,     //LSB
-    _disp->b1_pin,
-    _disp->b2_pin,
-    _disp->b3_pin,
-    _disp->b4_pin,
-    _disp->b5_pin
-    },
-    .disp_gpio_num = GPIO_NUM_NC,
-    .on_frame_trans_done = NULL,
-    .user_ctx = NULL,
-#endif
-    .flags = {
-      .fb_in_psram = 1,  // allocate frame buffer in PSRAM
-    },
+      .data_gpio_nums = {
+                         _disp->r1_pin, _disp->r2_pin, _disp->r3_pin, _disp->r4_pin, _disp->r5_pin,
+                         _disp->g0_pin, _disp->g1_pin, _disp->g2_pin, _disp->g3_pin, _disp->g4_pin, _disp->g5_pin,
+                         _disp->b1_pin, _disp->b2_pin, _disp->b3_pin, _disp->b4_pin, _disp->b5_pin
+                        },
+      .disp_gpio_num = GPIO_NUM_NC,
+      .on_frame_trans_done = NULL,
+      .user_ctx = NULL,
+      .flags = {
+          .fb_in_psram = 1, // allocate frame buffer in PSRAM
+      },
   };
 
-  if (_order == RGB_ORDER_BGR) {
-
+  if (_order == RGB_ORDER_BGR)
+  {
     // Swap color order
-
     uint8_t data = 0x00;
-    board_digitalWrite(_disp->cs_pin, LOW);
+    Panel_CS_EN();
     writeCommand(0x36);
     writeData(&data, 1);
-    board_digitalWrite(_disp->cs_pin, HIGH);
+    Panel_CS_DIS();
 
     memcpy(panel_config.data_gpio_nums,
            bus_rbg_order,
@@ -248,30 +168,96 @@ void RGBPanel::initBUS() {
   }
 
   ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_config, &_panelDrv));
+  // esp_lcd_rgb_panel_event_callbacks_t cbs = {
+  //   .on_vsync = example_on_vsync_event,
+  // };
+  // esp_lcd_rgb_panel_register_event_callbacks(_panelDrv, &cbs, &disp_drv);
+  // esp_lcd_panel_reset(_panelDrv);
   ESP_ERROR_CHECK(esp_lcd_panel_init(_panelDrv));
+
+  setBrightness(255);
+  releaseBus();
+
+  return true;
 }
 
-
-void RGBPanel::writeCommand(const uint8_t cmd) {
-  uint16_t data = cmd;
-  //send over hardware SPI, declated in main
-  SPI.transfer(data);
+void RGBPanel::setBrightness(uint8_t value)
+{
+  if (value > 0)
+  {
+    board_digitalWrite(_disp->bl_pin, HIGH);
+  }
+  else
+  {
+    board_digitalWrite(_disp->bl_pin, LOW);
+  }
+  _brightness = value;
 }
 
-void RGBPanel::writeData(const uint8_t *data, int len) {
-  uint32_t i = 0;
-  if (len > 0) {
-    do {
-      // The ninth bit of data, 1, represents data, 0 represents command
-      uint16_t pdat = (*(data + i)) | 1 << 8;
-      SPI.transfer(pdat);
-      i++;
-    } while (len--);
+uint8_t RGBPanel::getBrightness()
+{
+  return _brightness;
+}
+
+uint16_t RGBPanel::width()
+{
+  return _disp->width;
+}
+
+uint16_t RGBPanel::height()
+{
+  return _disp->height;
+}
+
+void RGBPanel::releaseBus()
+{
+  if (SPI_handle == nullptr)
+  {
+    return;
+  }
+
+  esp_err_t ret = spi_bus_remove_device(SPI_handle);
+  if (ret != ESP_OK)
+  {
+    log_e("Failed to remove display SPI device: %s", esp_err_to_name(ret));
+    return;
+  }
+
+  SPI_handle = nullptr;
+  ret = spi_bus_free(SPI2_HOST);
+  if (ret != ESP_OK)
+  {
+    log_e("Failed to free display SPI bus: %s", esp_err_to_name(ret));
   }
 }
 
-void RGBPanel::pushColors(uint16_t x, uint16_t y, uint16_t width, uint16_t hight, uint16_t *data) {
-  assert(_panelDrv);
-  esp_lcd_panel_draw_bitmap(_panelDrv, x, y, width, hight, data);
+void RGBPanel::writeCommand(const uint8_t cmd)
+{
+  spi_transaction_t spi_tran = {
+      .cmd = 0,
+      .addr = cmd,
+      .length = 0,
+      .rxlength = 0,
+  };
+  spi_device_transmit(SPI_handle, &spi_tran);
 }
 
+void RGBPanel::writeData(const uint8_t *data, int len)
+{
+  for (int i = 0; i < len; i++)
+  {
+    spi_transaction_t spi_tran = {
+        .cmd = 1,
+        .addr = data[i],
+        .length = 0,
+        .rxlength = 0,
+    };
+    spi_device_transmit(SPI_handle, &spi_tran);
+  }
+}
+
+void RGBPanel::pushColors(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *data)
+{
+  assert(_panelDrv);
+  esp_lcd_panel_draw_bitmap(_panelDrv, x, y, width, height, data);
+}

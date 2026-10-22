@@ -168,7 +168,7 @@ private:
 
 class KTS1622_IO_Expander {
 public:
-    static constexpr uint8_t MAX_MODULES = 4;
+    enum : uint8_t { MAX_MODULES = 4 };
 
     // `addresses` must point to at least `numModules` entries.
     KTS1622_IO_Expander(uint8_t numModules, const uint8_t addresses[], TwoWire &wirePort = Wire);

@@ -11,21 +11,34 @@
 // #error "ESP Arduino Version must be 3.3.0 or less"
 // #endif
 
-#include <esp_lcd_panel_io.h>
-#include <esp_lcd_panel_ops.h>
-#include <esp_lcd_panel_rgb.h>
-#include <esp_lcd_panel_vendor.h>
+#include <inttypes.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/spi_master.h"
+#include "driver/gpio.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_rgb.h"
+
+#include "driver/spi_master.h"
+#include "driver/gpio.h"
+#include "freertos/task.h"
 
 // #include <SD_MMC.h>
 #include "Simple_Display.h"
 #include "board_io.h"
 
-enum RGBPanel_Color_Order {
+enum RGBPanel_Color_Order
+{
     RGB_ORDER_RGB,
     RGB_ORDER_BGR,
 };
 
-struct disp_lcd_panel_config_t {
+struct disp_lcd_panel_config_t
+{
     uint16_t width;
     uint16_t height;
 
@@ -59,9 +72,6 @@ struct disp_lcd_panel_config_t {
     int b3_pin;
     int b4_pin;
     int b5_pin;
-
-    bool use_wire;
-    bool use_spi;
 };
 
 class RGBPanel : public Simple_Display
@@ -69,7 +79,6 @@ class RGBPanel : public Simple_Display
 
 public:
     RGBPanel();
-
     ~RGBPanel();
 
     bool begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order = RGB_ORDER_RGB, bool IO_Init = false);
@@ -77,30 +86,41 @@ public:
     void setBrightness(uint8_t level);
     uint8_t getBrightness();
 
-    uint16_t  width();
-    uint16_t  height();
+    uint16_t width();
+    uint16_t height();
 
     void pushColors(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *data);
 
 private:
-
     void writeData(const uint8_t *data, int len);
-
     void writeCommand(const uint8_t cmd);
+    void releaseBus();
 
-    void initBUS();
-    void initDevice();
+    void Panel_CS_EN()
+    {
+        board_digitalWrite(_disp->cs_pin, LOW);
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    void Panel_CS_DIS()
+    {
+        board_digitalWrite(_disp->cs_pin, HIGH);
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    void Panel_Reset()
+    {
+        board_digitalWrite(_disp->rst_pin, LOW);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        board_digitalWrite(_disp->rst_pin, HIGH);
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
 
     uint8_t _brightness;
 
     esp_lcd_panel_handle_t _panelDrv;
-    RGBPanel_Color_Order  _order;
-    disp_lcd_panel_config_t* _disp;
+    RGBPanel_Color_Order _order;
+    disp_lcd_panel_config_t *_disp;
+    spi_device_handle_t SPI_handle = NULL;
 
     bool _has_init;
     bool _IO_Init;
-
 };
-
-
-

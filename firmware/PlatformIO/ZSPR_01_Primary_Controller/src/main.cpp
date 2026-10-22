@@ -5,6 +5,7 @@ HAL_Robot_Module robot;
 
 void setup()
 {
+  // Serial.setDebugOutput(true);
   robot.begin();
 }
 

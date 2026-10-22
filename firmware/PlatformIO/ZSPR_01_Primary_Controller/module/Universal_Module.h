@@ -21,8 +21,8 @@ public:
     // virtual ~Universal_Module() {}
     virtual return_codes_t setup() { return SUCCESS; }
     virtual return_codes_t update() { return SUCCESS; }
-    virtual return_codes_t getData(uint16_t *data, int argc, char **argv) { return SUCCESS; }
-    virtual return_codes_t setData(uint16_t *data, int argc, char **argv) { return SUCCESS; }
+    // virtual return_codes_t getData(uint16_t *data, int argc, char **argv) { return SUCCESS; }
+    // virtual return_codes_t setData(uint16_t *data, int argc, char **argv) { return SUCCESS; }
 
 protected:
     bool _enabled = false;

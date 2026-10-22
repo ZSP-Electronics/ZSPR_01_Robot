@@ -62,6 +62,9 @@ public:
     {
         if (_enabled)
         {
+            if (!_mounted)
+                return ERROR;
+
             _cardPresent = read_card_detect();
         }
         return SUCCESS;
@@ -139,16 +142,6 @@ public:
         }
         root.close();
         return count;
-    }
-
-    return_codes_t getData(uint16_t *data, int argc, char **argv) override
-    {
-        return SUCCESS;
-    }
-
-    return_codes_t setData(uint16_t *data, int argc, char **argv) override
-    {
-        return SUCCESS;
     }
 
 private:
