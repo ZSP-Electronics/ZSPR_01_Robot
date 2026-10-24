@@ -124,6 +124,7 @@ void HAL_Robot_Module::hardware_setup()
     // SPI.begin() happens after the display init below: the panel's 9-bit
     // config bus is bit-banged on the same SCLK/MOSI pins, which are only
     // handed to the SPI peripheral (ToF, SD) once the panel is done with them.
+    // SPI.begin(BOARD_SCLK, BOARD_MISO, BOARD_MOSI);
 
     Wire.begin(BOARD_I2C_SDA, BOARD_I2C_SCL);
     Wire.setClock(400000); // Set I2C frequency to 400kHz
@@ -178,10 +179,10 @@ void HAL_Robot_Module::hardware_setup()
     display_ok = (display_module.setup() == SUCCESS); // bit-bangs the panel init, then releases SCLK/MOSI
     if (!display_ok)
       Serial.println("[display] init failed, continuing without display");
-    display_module.spr.fillScreen(RED);
-#endif
 
-    SPI.begin(BOARD_SCLK, BOARD_MISO, BOARD_MOSI);
+    // display_module.spr.fillScreen(RED);
+    
+#endif
 
     // display_module.activate_robot_face();
     // display_module.draw_splash_screen();
@@ -266,7 +267,7 @@ void HAL_Robot_Module::hardware_update()
 #endif
 
 #if ENABLE_DISPLAY
-    display_module.update();
+    // display_module.update();
 #endif
 }
 

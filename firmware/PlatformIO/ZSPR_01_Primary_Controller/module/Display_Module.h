@@ -35,7 +35,7 @@ public:
           .width = BOARD_TFT_WIDTH,
           .height = BOARD_TFT_HEIGHT,
 
-          .pclk_freq = 8000000UL,
+          .pclk_freq = RGB_MAX_PIXEL_CLOCK_HZ,
           .pclk_pin = BOARD_TFT_PCLK,
           .hsync_pin = BOARD_TFT_HSYNC,
           .vsync_pin = BOARD_TFT_VSYNC,
@@ -66,11 +66,10 @@ public:
           .b2_pin = BOARD_TFT_B2,
           .b3_pin = BOARD_TFT_B3,
           .b4_pin = BOARD_TFT_B4,
-          .b5_pin = BOARD_TFT_B5
-        };
+          .b5_pin = BOARD_TFT_B5};
 
       /* Initialize Modules */
-      bool rslt = panel.begin(&panel_config, RGB_ORDER_RGB);
+      bool rslt = panel.begin(&panel_config);
       if (!rslt)
       {
         _enabled = false;
@@ -107,6 +106,19 @@ public:
 #endif
     }
 #endif
+
+    uint16_t *redBuffer = nullptr;
+    const size_t pixelCount = static_cast<size_t>(BOARD_TFT_WIDTH) * BOARD_TFT_HEIGHT;
+    redBuffer = static_cast<uint16_t *>(heap_caps_malloc(
+        pixelCount * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+
+    for (size_t pixel = 0; pixel < pixelCount; ++pixel)
+    {
+      redBuffer[pixel] = 0xF800;
+    }
+
+    panel.pushColors(0, 0, BOARD_TFT_WIDTH, BOARD_TFT_HEIGHT, redBuffer);
+
     return SUCCESS;
   }
 
@@ -117,7 +129,8 @@ public:
       if (millis() - _last_refresh >= _target_frame_rate)
       {
         _last_refresh = millis();
-        if (draw_robot_face) face.update(); // update eyes drawings
+        if (draw_robot_face)
+          face.update(); // update eyes drawings
         panel.pushColors(0, 0, _width, _height, (uint16_t *)spr.getPointer());
       }
 
@@ -158,9 +171,9 @@ public:
   bool touchReady() const { return _touch_ok; }
 #endif
 
-/**********************/
-/* ALTERNATE FUNCTIONS*/
-/**********************/
+  /**********************/
+  /* ALTERNATE FUNCTIONS*/
+  /**********************/
   void activate_robot_face()
   {
     if (!_enabled)

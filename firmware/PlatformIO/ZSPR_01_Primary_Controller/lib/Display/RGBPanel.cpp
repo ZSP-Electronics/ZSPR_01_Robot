@@ -17,6 +17,7 @@
 // #endif
 
 static const lcd_init_cmd_t *_init_cmd = NULL;
+static spi_device_handle_t _display_spi = NULL;
 
 RGBPanel::RGBPanel(/* args */)
     : _brightness(0), _panelDrv(NULL),
@@ -57,34 +58,48 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
 
   Panel_Reset();
 
-  spi_bus_config_t buscfg = {
+  spi_bus_config_t bus_config = {
       .mosi_io_num = _disp->sda_pin,
       .miso_io_num = -1,
       .sclk_io_num = _disp->sck_pin,
       .quadwp_io_num = -1,
       .quadhd_io_num = -1,
-      .max_transfer_sz = 64, // ESP32 S3 max size is 64Kbytes
+      .max_transfer_sz = 64,
   };
-  esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
-  assert(ret == ESP_OK);
+  esp_err_t err = spi_bus_initialize(SPI2_HOST, &bus_config, SPI_DMA_CH_AUTO);
+  if (err != ESP_OK)
+  {
+    Serial.printf("LCD SPI bus init failed: %s\\n", esp_err_to_name(err));
+    return false;
+  }
 
-  spi_device_interface_config_t devcfg = {
+  spi_device_interface_config_t device_config = {
       .command_bits = 1,
       .address_bits = 8,
       .mode = SPI_MODE0,
       .clock_speed_hz = 40000000,
       .spics_io_num = -1,
-      .queue_size = 1, // Not using queues
+      .queue_size = 1,
   };
-  ret = spi_bus_add_device(SPI2_HOST, &devcfg, &SPI_handle);
-  assert(ret == ESP_OK);
+  err = spi_bus_add_device(SPI2_HOST, &device_config, &_display_spi);
+  if (err != ESP_OK)
+  {
+    Serial.printf("LCD SPI device init failed: %s\\n", esp_err_to_name(err));
+    spi_bus_free(SPI2_HOST);
+    return false;
+  }
 
   Panel_CS_EN();
 
   for (int i = 0; i < ST7701_2_8_INCH_DATA_COMMANDS; i++)
   {
     writeCommand(_init_cmd[i].cmd);
-    writeData(_init_cmd[i].data, _init_cmd[i].databytes);
+    Serial.printf("Writing command: 0x%02X\n", _init_cmd[i].cmd);
+    if (_init_cmd[i].databytes > 0)
+    {
+      Serial.printf("Writing %d data bytes\n", _init_cmd[i].databytes);
+      writeData(_init_cmd[i].data, _init_cmd[i].databytes);
+    }
     if (_init_cmd[i].delay > 0)
     {
       delay(_init_cmd[i].delay);
@@ -117,12 +132,12 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   };
 
   esp_lcd_rgb_panel_config_t panel_config = {
-      .clk_src = LCD_CLK_SRC_PLL160M, // LCD_CLK_SRC_PLL160M   LCD_CLK_SRC_PLL240M   LCD_CLK_SRC_XTAL   LCD_CLK_SRC_DEFAULT
+      .clk_src = LCD_CLK_SRC_PLL160M,
       .timings = {
           .pclk_hz = _disp->pclk_freq,
           .h_res = _disp->width,
           .v_res = _disp->height,
-          // The following parameters should refer to LCD spec
+          // Same timings as the LilyGo T-RGB reference driver
           .hsync_pulse_width = 1,
           .hsync_back_porch = 30,
           .hsync_front_porch = 50,
@@ -140,11 +155,7 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
       .de_gpio_num = _disp->de_pin,
       .pclk_gpio_num = _disp->pclk_pin,
 
-      .data_gpio_nums = {
-                         _disp->r1_pin, _disp->r2_pin, _disp->r3_pin, _disp->r4_pin, _disp->r5_pin,
-                         _disp->g0_pin, _disp->g1_pin, _disp->g2_pin, _disp->g3_pin, _disp->g4_pin, _disp->g5_pin,
-                         _disp->b1_pin, _disp->b2_pin, _disp->b3_pin, _disp->b4_pin, _disp->b5_pin
-                        },
+      .data_gpio_nums = {_disp->b1_pin, _disp->b2_pin, _disp->b3_pin, _disp->b4_pin, _disp->b5_pin, _disp->g0_pin, _disp->g1_pin, _disp->g2_pin, _disp->g3_pin, _disp->g4_pin, _disp->g5_pin, _disp->r1_pin, _disp->r2_pin, _disp->r3_pin, _disp->r4_pin, _disp->r5_pin},
       .disp_gpio_num = GPIO_NUM_NC,
       .on_frame_trans_done = NULL,
       .user_ctx = NULL,
@@ -172,11 +183,11 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   //   .on_vsync = example_on_vsync_event,
   // };
   // esp_lcd_rgb_panel_register_event_callbacks(_panelDrv, &cbs, &disp_drv);
-  // esp_lcd_panel_reset(_panelDrv);
+  ESP_ERROR_CHECK(esp_lcd_panel_reset(_panelDrv));
   ESP_ERROR_CHECK(esp_lcd_panel_init(_panelDrv));
 
   setBrightness(255);
-  releaseBus();
+  // releaseBus();
 
   return true;
 }
@@ -211,48 +222,48 @@ uint16_t RGBPanel::height()
 
 void RGBPanel::releaseBus()
 {
-  if (SPI_handle == nullptr)
-  {
-    return;
-  }
+  // if (SPI_handle == nullptr)
+  // {
+  //   return;
+  // }
 
-  esp_err_t ret = spi_bus_remove_device(SPI_handle);
-  if (ret != ESP_OK)
-  {
-    log_e("Failed to remove display SPI device: %s", esp_err_to_name(ret));
-    return;
-  }
+  // esp_err_t ret = spi_bus_remove_device(SPI_handle);
+  // if (ret != ESP_OK)
+  // {
+  //   log_e("Failed to remove display SPI device: %s", esp_err_to_name(ret));
+  //   return;
+  // }
 
-  SPI_handle = nullptr;
-  ret = spi_bus_free(SPI2_HOST);
-  if (ret != ESP_OK)
-  {
-    log_e("Failed to free display SPI bus: %s", esp_err_to_name(ret));
-  }
+  // SPI_handle = nullptr;
+  // ret = spi_bus_free(SPI2_HOST);
+  // if (ret != ESP_OK)
+  // {
+  //   log_e("Failed to free display SPI bus: %s", esp_err_to_name(ret));
+  // }
 }
 
 void RGBPanel::writeCommand(const uint8_t cmd)
 {
-  spi_transaction_t spi_tran = {
+  spi_transaction_t transaction = {
       .cmd = 0,
       .addr = cmd,
       .length = 0,
       .rxlength = 0,
   };
-  spi_device_transmit(SPI_handle, &spi_tran);
+  ESP_ERROR_CHECK(spi_device_transmit(_display_spi, &transaction));
 }
 
 void RGBPanel::writeData(const uint8_t *data, int len)
 {
-  for (int i = 0; i < len; i++)
+  for (int i = 0; i < len; ++i)
   {
-    spi_transaction_t spi_tran = {
+    spi_transaction_t transaction = {
         .cmd = 1,
         .addr = data[i],
         .length = 0,
         .rxlength = 0,
     };
-    spi_device_transmit(SPI_handle, &spi_tran);
+    ESP_ERROR_CHECK(spi_device_transmit(_display_spi, &transaction));
   }
 }
 

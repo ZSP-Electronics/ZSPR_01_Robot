@@ -99,19 +99,23 @@ private:
     void Panel_CS_EN()
     {
         board_digitalWrite(_disp->cs_pin, LOW);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // vTaskDelay(pdMS_TO_TICKS(10));
+        delay(10);
     }
     void Panel_CS_DIS()
     {
         board_digitalWrite(_disp->cs_pin, HIGH);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // vTaskDelay(pdMS_TO_TICKS(10));
+        delay(10);
     }
     void Panel_Reset()
     {
         board_digitalWrite(_disp->rst_pin, LOW);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // vTaskDelay(pdMS_TO_TICKS(10));
+        delay(10);
         board_digitalWrite(_disp->rst_pin, HIGH);
-        vTaskDelay(pdMS_TO_TICKS(50));
+        // vTaskDelay(pdMS_TO_TICKS(50));
+        delay(50);
     }
 
     uint8_t _brightness;
@@ -119,7 +123,7 @@ private:
     esp_lcd_panel_handle_t _panelDrv;
     RGBPanel_Color_Order _order;
     disp_lcd_panel_config_t *_disp;
-    spi_device_handle_t SPI_handle = NULL;
+    // spi_device_handle_t SPI_handle = NULL;
 
     bool _has_init;
     bool _IO_Init;

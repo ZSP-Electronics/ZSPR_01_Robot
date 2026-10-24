@@ -7,10 +7,10 @@
 #define DEBUG
 
 #define ENABLE_SERVO          0
-#define ENABLE_TOF            1
-#define ENABLE_CURRENT_SENSE  1
+#define ENABLE_TOF            0
+#define ENABLE_CURRENT_SENSE  0
 #define ENABLE_TOUCH          0 // GT911 capacitive touch (polled via Display_Module)
-#define ENABLE_IMU_COMPASS    1
+#define ENABLE_IMU_COMPASS    0
 #define ENABLE_SD             0
 #define ENABLE_DISPLAY        1 // RGB parallel panel: frame buffer needs PSRAM (RGBPanel.h #errors without it); disable on non-PSRAM S3 modules
 #define ENABLE_BUZZER         1
