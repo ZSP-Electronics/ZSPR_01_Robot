@@ -110,10 +110,8 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   for (int i = 0; i < ST7701_2_8_INCH_DATA_COMMANDS; i++)
   {
     writeCommand(_init_cmd[i].cmd);
-    Serial.printf("Writing command: 0x%02X\n", _init_cmd[i].cmd);
     if (_init_cmd[i].databytes > 0)
     {
-      Serial.printf("Writing %d data bytes\n", _init_cmd[i].databytes);
       writeData(_init_cmd[i].data, _init_cmd[i].databytes);
     }
     if (_init_cmd[i].delay > 0)
@@ -228,6 +226,9 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   // setBrightness(255);
   // releaseBus();
 
+  Backlight_Init();
+  Set_Backlight(100);
+
   return true;
 }
 
@@ -324,5 +325,9 @@ void RGBPanel::showFrameBuffer(uint16_t *fb, uint32_t timeout_ms)
   xSemaphoreTake(_vsync, 0); // drop a stale vsync
   // Passing one of the driver's own frame buffers makes it switch scan-out to it at the next vsync, no copy.
   esp_lcd_panel_draw_bitmap(_panelDrv, 0, 0, _disp->width, _disp->height, fb);
+  xSemaphoreTake(_vsync, pdMS_TO_TICKS(timeout_ms));
+  // With bounce buffers the driver has already prefetched the first lines of the next frame from the old
+  // buffer when this vsync fires, so scan-out can still be reading it. Wait one more frame before the caller
+  // (LVGL) starts drawing into the old buffer, otherwise partial updates tear and leave artifacts.
   xSemaphoreTake(_vsync, pdMS_TO_TICKS(timeout_ms));
 }

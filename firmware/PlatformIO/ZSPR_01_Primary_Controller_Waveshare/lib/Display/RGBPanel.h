@@ -87,7 +87,7 @@ struct disp_lcd_panel_config_t
     // begin() falls back to 1 if the driver cannot allocate/run with 2.
     uint8_t num_fbs = 2;
     // Height of the internal-RAM bounce buffer in lines (width*height must divide evenly by it).
-    uint16_t bounce_lines = 10;
+    uint16_t bounce_lines = 20; // more lines = more slack when the CPU is busy in PSRAM (must divide height)
 };
 
 class RGBPanel : public Simple_Display

@@ -43,7 +43,7 @@
  * RENDERING CONFIGURATION
  *========================*/
 #define LV_DRAW_BUF_STRIDE_ALIGN        1
-#define LV_DRAW_BUF_ALIGN               64     /* matches the S3 64 B data cache line */
+#define LV_DRAW_BUF_ALIGN               4      /* the RGB driver's PSRAM frame buffers (used directly as draw buffers) are only 32 B aligned */
 #define LV_DRAW_LAYER_SIMPLE_BUF_SIZE   (64 * 1024)
 
 #define LV_USE_DRAW_SW  1

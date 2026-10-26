@@ -1,22 +1,21 @@
 #include <Arduino.h>
 
-#include "I2C_Driver.h"
-#include "TCA9554PWR.h"
-#include "Touch_GT911.h"
 #include "RGBPanel.h"
-
-#include "panel_config.h"
+#include "RGBRoboFace.h"
+#include "hal/HAL_Robot_Driver.h"
 #include "ui/LvglPort.h"
 #include "ui/UiManager.h"
 #include "ui/FaceHome.h"
 #include "ui/LauncherMenu.h"
 #include "ui/apps/SettingsApp.h"
+#include "panel_config.h"
 
 static RGBPanel panel;
 static LvglPort lvgl;
 
 static UiManager ui;
 static FaceHome face(ui);
+static RGBroboFace robotFace;
 static LauncherMenu launcher(ui);
 
 // One object per app; register each with ui.addApp() in setup().
@@ -26,10 +25,7 @@ void setup()
 {
   Serial.begin(115200);
 
-  I2C_Init();
-  Wire.setClock(400000);
-  TCA9554PWR_Init(0x00);    // LCD reset/CS, touch reset and buzzer live on the expander
-  Set_EXIO(EXIO_PIN8, Low); // buzzer off
+  HAL_Robot_Driver_Init();
 
   disp_lcd_panel_config_t panel_config = makePanelConfig();
   if (!panel.begin(&panel_config))
@@ -38,7 +34,6 @@ void setup()
     for (;;)
       delay(1000);
   }
-  Touch_Init();
 
   if (!lvgl.begin(panel))
   {
@@ -50,10 +45,17 @@ void setup()
   LvglPort::lock();
   ui.addApp(settingsApp);
   ui.begin(face, launcher);
-  // TODO: build the robot face inside face.faceContainer().
+  robotFace.begin(face.faceContainer());
+  robotFace.setEyeWidth(130);
+  robotFace.setEyeHeight(160);
+  robotFace.setEyeBorderradius(40);
+  robotFace.setEyeSpacebetween(20);
+  robotFace.setAutoblinker(true, 2, 4);
+  robotFace.setCuriosity(true);
+  robotFace.setPositionDistance(15);
   LvglPort::unlock();
 
-  Backlight_Init();
+  xTaskCreatePinnedToCore(HAL_Robot_Driver_loop, "Other Driver task", 4096, NULL, 3, NULL, 0);
 }
 
 void loop()

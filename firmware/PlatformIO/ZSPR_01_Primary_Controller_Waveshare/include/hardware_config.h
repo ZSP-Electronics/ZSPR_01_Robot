@@ -47,3 +47,6 @@
 
 #define BOARD_I2C_SDA        (15)
 #define BOARD_I2C_SCL        (7)
+
+#define BOARD_MOTOR_TX        (43)
+#define BOARD_MOTOR_RX        (44)

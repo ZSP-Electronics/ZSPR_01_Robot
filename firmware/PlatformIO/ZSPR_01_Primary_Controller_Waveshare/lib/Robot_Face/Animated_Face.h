@@ -3,11 +3,13 @@
 
 #include <Arduino.h>
 
-#if __has_include(<Arduino_GFX_Library.h>)
-  #include <Arduino_GFX_Library.h>
-  #define ARDUINO_GFX_AVAILABLE 1
-#else
-  #define ARDUINO_GFX_AVAILABLE 0
+#include <lvgl.h>
+
+// Colors are RGB565 values, converted to lv_color_t when drawn.
+#ifndef RGB565
+  #define RGB565(r, g, b) ((uint16_t)((((r)&0xF8) << 8) | (((g)&0xFC) << 3) | ((b) >> 3)))
+#endif
+#ifndef WHITE
   #define RED 0xF800
   #define GREEN 0x07E0
   #define BLUE 0x001F
@@ -19,13 +21,6 @@
   #define ORANGE 0xFC00
   #define PINK 0xF81F
   #define PURPLE 0x780F
-#endif
-
-#include <TFT_eSPI.h>
-#define TFT_ESPI_AVAILABLE 1
-
-#ifndef RGB565
-  #define RGB565(r, g, b) ((uint16_t)((((r)&0xF8) << 8) | (((g)&0xFC) << 3) | ((b) >> 3)))
 #endif
 
 //#define FACE_DEBUG
@@ -88,26 +83,21 @@ class Animated_Face {
 public:
   Animated_Face(int width, int height);
   Animated_Face();
-
-#if ARDUINO_GFX_AVAILABLE
-  Arduino_RGB_Display *canvasGfx = NULL;
-#endif
-
-#if TFT_ESPI_AVAILABLE
-  TFT_eSprite *_spr = NULL;
-#endif
+  ~Animated_Face();
 
   //*********************************************************************************************
   //  GENERAL METHODS
   //*********************************************************************************************
-#if ARDUINO_GFX_AVAILABLE
-  void begin(Arduino_RGB_Display *display, bool dbug = false);
-#endif
-#if TFT_ESPI_AVAILABLE
-  void begin(TFT_eSprite *sprite, bool dbug = false);
-#endif
-  //void setFramerate(uint8_t fps);
+  // Creates one full-size LVGL object inside `parent` that draws the face with LVGL's primitive
+  // shapes (rounded rects + triangles), and an lv_timer that animates it every frame interval.
+  // The object ignores touch so gestures reach the parent. Call with the LVGL lock held, as with
+  // every setter below (the timer runs inside the LVGL task).
+  void begin(lv_obj_t *parent, bool dbug = false);
+  // Stops the animation and deletes the object (also safe if its parent was deleted first).
+  void end();
+  // Advances the animation one frame and requests a redraw. Called by the timer.
   void update();
+  //void setFramerate(uint8_t fps);
   void setAnimiationSpeed(float value);
 
   //*********************************************************************************************
@@ -166,15 +156,32 @@ private:
 
   void init();
 
-  //TFT eSPI graphics fixes
-  void fillRoundRect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint32_t color);
+  static void drawCb(lv_event_t *e);
+  static void deletedCb(lv_event_t *e);
+  static void timerCb(lv_timer_t *t);
+  static lv_color_t toColor(uint16_t c565);
+
+  lv_obj_t *_obj = nullptr;
+  lv_timer_t *_timer = nullptr;
+
+  // Dirty-rect tracking: only the eyes/mouth that changed since the last frame are invalidated.
+  void invalidateChanged();
+  eyes _snapEyes[2];
+  int _snapMouth[8];
+  lv_area_t _prevRect[3];  // left eye, right eye, mouth (relative to _obj)
+  bool _snapValid = false;
 
   //*********************************************************************************************
   //  PRE-CALCULATIONS AND ACTUAL DRAWINGS
   //*********************************************************************************************
-  void drawFace();
-  void drawEyes();
-  void drawMouth();
+  void stepFace();
+  void stepEyes();
+  void stepMouth();
+  void renderEyes(lv_layer_t *layer, int ox, int oy);
+  void renderMouth(lv_layer_t *layer, int ox, int oy);
+  void fillRect(lv_layer_t *layer, int x, int y, int w, int h, int radius, uint16_t color);
+  void fillTri(lv_layer_t *layer, int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color);
+  void drawCross(lv_layer_t *layer, int x, int y, uint16_t color);
   void debug();
   void close(bool left, bool right);
   void open(bool left, bool right);
@@ -205,7 +212,7 @@ private:
   // For general setup - screen size and max. frame rate
   int _screenWidth, _prevScreenWidth;    // OLED display width, in pixels
   int _screenHeight, _prevScreenHeight;  // OLED display height, in pixels
-  int _frameInterval = 10;               // default value for 50 frames per second (1000/50 = 20 milliseconds)
+  int _frameInterval = 16;               // default value for 50 frames per second (1000/50 = 20 milliseconds)
   unsigned long fpsTimer = 0;            // for timing the frames per second
   uint8_t _framedivisor = 4;
 

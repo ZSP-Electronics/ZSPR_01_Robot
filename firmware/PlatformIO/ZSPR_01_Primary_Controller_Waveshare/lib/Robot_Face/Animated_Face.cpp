@@ -12,24 +12,63 @@ Animated_Face::Animated_Face() {}
 //  GENERAL METHODS
 //*********************************************************************************************
 
-#if ARDUINO_GFX_AVAILABLE
-void Animated_Face::begin(Arduino_RGB_Display *display, bool dbug) {
-  _debug = dbug;
-  canvasGfx = display;
-  init();
+Animated_Face::~Animated_Face() {
+  end();
 }
-#endif
 
-#if TFT_ESPI_AVAILABLE
-void Animated_Face::begin(TFT_eSprite *sprite, bool dbug) {
+void Animated_Face::begin(lv_obj_t *parent, bool dbug) {
+  if (_obj) return;
   _debug = dbug;
-  _spr = sprite;
 
-  _screenWidth = _spr->width();
-  _screenHeight = _spr->height();
+  _obj = lv_obj_create(parent);
+  lv_obj_remove_style_all(_obj);
+  lv_obj_set_size(_obj, lv_pct(100), lv_pct(100));
+  lv_obj_remove_flag(_obj, (lv_obj_flag_t)(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE));
+  lv_obj_add_flag(_obj, LV_OBJ_FLAG_GESTURE_BUBBLE);
+  lv_obj_set_style_bg_opa(_obj, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(_obj, toColor(_debug ? _FakebgColor : _bgColor), 0);
+  lv_obj_add_event_cb(_obj, drawCb, LV_EVENT_DRAW_MAIN, this);
+  lv_obj_add_event_cb(_obj, deletedCb, LV_EVENT_DELETE, this);
+
+  lv_obj_update_layout(_obj);
+  _screenWidth = lv_obj_get_width(_obj);
+  _screenHeight = lv_obj_get_height(_obj);
   init();
+
+  _timer = lv_timer_create(timerCb, _frameInterval, this);
 }
-#endif
+
+void Animated_Face::end() {
+  if (_timer) {
+    lv_timer_delete(_timer);
+    _timer = nullptr;
+  }
+  if (_obj) {
+    lv_obj_t *obj = _obj;
+    _obj = nullptr;  // deletedCb then sees nothing left to do
+    lv_obj_delete(obj);
+  }
+}
+
+void Animated_Face::deletedCb(lv_event_t *e) {
+  // The parent screen went away: drop the dangling pointer and stop animating.
+  Animated_Face *self = static_cast<Animated_Face *>(lv_event_get_user_data(e));
+  if (self->_obj) {
+    self->_obj = nullptr;
+    if (self->_timer) {
+      lv_timer_delete(self->_timer);
+      self->_timer = nullptr;
+    }
+  }
+}
+
+void Animated_Face::timerCb(lv_timer_t *t) {
+  static_cast<Animated_Face *>(lv_timer_get_user_data(t))->update();
+}
+
+lv_color_t Animated_Face::toColor(uint16_t c) {
+  return lv_color_make((c >> 8) & 0xF8, (c >> 3) & 0xFC, (c << 3) & 0xF8);
+}
 
 void Animated_Face::init() {
 
@@ -105,18 +144,51 @@ void Animated_Face::init() {
 }
 
 void Animated_Face::update() {
-  // Limit drawing updates to defined max framerate
-  if (millis() - fpsTimer >= _frameInterval) {
-    drawFace();
+  stepFace();
+  setup_complete = true;
+  if (_obj) invalidateChanged();
+}
 
-    //if (flush)
-    //canvasGfx->flush();
-
-    fpsTimer = millis();
-    setup_complete = true;
-    //_fps = millis();
+void Animated_Face::invalidateChanged() {
+  if (cross_hair || mouthCrosshair) {
+    lv_obj_invalidate(_obj);  // debug overlays: not worth tracking
+    return;
   }
-  //_fps = millis();
+
+  const int sides = cyclops ? 1 : 2;
+  lv_area_t now[3];
+  bool changed[3] = {false, false, false};
+  bool used[3] = {false, false, false};
+
+  const int mouthState[8] = {mouthLx, mouthLy, mouthWidth, mouthHeight, mouthRadius, topMouthLip, bottomMouthLip, surprisedPaddingNext};
+
+  for (int s = 0; s < sides; s++) {
+    const eyes &e = _eyes[s];
+    now[s] = {e.cX - 2, e.cY - surprisedEyePadding - 2, e.cX + e.width + 2, e.cY + e.height + surprisedEyePadding + 2};
+    used[s] = true;
+    changed[s] = !_snapValid || memcmp(&_snapEyes[s], &e, sizeof(eyes)) != 0;
+    memcpy(&_snapEyes[s], &e, sizeof(eyes));
+  }
+  if (mouthActive) {
+    now[2] = {mouthLx - mouthWidth / 2 - 2, mouthLy - surprisedPaddingNext - 2, mouthLx + mouthWidth / 2 + mouthWidth % 2 + 2, mouthLy + mouthHeight + surprisedPaddingNext + 2};
+    used[2] = true;
+    changed[2] = !_snapValid || memcmp(_snapMouth, mouthState, sizeof(mouthState)) != 0;
+    memcpy(_snapMouth, mouthState, sizeof(mouthState));
+  }
+
+  for (int i = 0; i < 3; i++) {
+    if (!used[i] || !changed[i]) continue;
+    lv_area_t dirty = now[i];
+    if (_snapValid) {  // also repaint where it used to be
+      dirty.x1 = min(dirty.x1, _prevRect[i].x1);
+      dirty.y1 = min(dirty.y1, _prevRect[i].y1);
+      dirty.x2 = max(dirty.x2, _prevRect[i].x2);
+      dirty.y2 = max(dirty.y2, _prevRect[i].y2);
+    }
+    lv_obj_invalidate_area(_obj, &dirty);
+    _prevRect[i] = now[i];
+  }
+  _snapValid = true;
 }
 
 // void Animated_Face::setFramerate(uint8_t fps) {
@@ -306,6 +378,7 @@ void Animated_Face::setEyeColor(uint16_t l_color, uint16_t r_color) {
 
 void Animated_Face::setBGColor(uint16_t color) {
   _bgColor = color;
+  if (_obj && !_debug) lv_obj_set_style_bg_color(_obj, toColor(color), 0);
 }
 
 void Animated_Face::setCuriosity(bool active, int interval, int variation) {
@@ -440,27 +513,7 @@ void Animated_Face::setMouthPadding(int padding) {
 //*********************************************************************************************
 //  PRE-CALCULATIONS AND ACTUAL DRAWINGS
 //*********************************************************************************************
-void Animated_Face::drawFace() {
-#if ARDUINO_GFX_AVAILABLE
-  if (canvasGfx != NULL) {
-    if (_debug)
-      canvasGfx->fillScreen(_FakebgColor);  // start with a blank screen
-    else
-      canvasGfx->fillScreen(_bgColor);  // start with a blank screen
-  }
-#endif
-
-#if TFT_ESPI_AVAILABLE
-  if (_spr != NULL) {
-    if (_debug)
-      _spr->fillSprite(_FakebgColor);  // start with a blank screen
-    else
-      _spr->fillSprite(_bgColor);
-    //_spr->fillSprite(RED);
-  }
-#endif
-
-
+void Animated_Face::stepFace() {
   if (idle) {
     if (millis() >= idleAnimationTimer) {
       unsigned int move_from_center = random(3);
@@ -484,70 +537,9 @@ void Animated_Face::drawFace() {
   _faceCenter_y = (_faceCenter_y * _cur_value) + ((_faceCenter_yNext + _vertical_padding) * _nex_value);
 
   if (mouthActive)
-    drawMouth();
+    stepMouth();
 
-  drawEyes();
-
-  // Draw sector lines if enabled
-  // if (sector_lines) {
-  //   //Draw Vertical Lines
-  //   for (uint8_t i = 0; i <= 5; i++) {
-  //     canvasGfx->drawLine(_sector_sizeX * i, 0, _sector_sizeX * i, _screenHeight, RGB565(242, 242, 33));
-  //   }
-  //   //Draw Horizontal Lines
-  //   for (uint8_t j = 0; j <= 5; j++) {
-
-  //     canvasGfx->drawLine(0, _sector_sizeY * j, _screenWidth, _sector_sizeY * j, RGB565(242, 242, 33));
-  //   }
-
-  //   if (idleRadius > 0)
-  //     canvasGfx->drawCircle((_screenWidth / 2), (_screenHeight / 2), idleRadius, RGB565(255, 0, 255));
-  // }
-
-  //Draw center point of face
-  if (cross_hair) {
-#if ARDUINO_GFX_AVAILABLE
-    if (canvasGfx != NULL) {
-      canvasGfx->drawLine(_faceCenter_x - 5, _faceCenter_y, _faceCenter_x + 5, _faceCenter_y, RGB565(242, 242, 33));
-      canvasGfx->drawLine(_faceCenter_x, _faceCenter_y - 5, _faceCenter_x, _faceCenter_y + 5, RGB565(242, 242, 33));
-    }
-#endif
-
-#if TFT_ESPI_AVAILABLE
-    if (_spr != NULL) {
-      _spr->drawLine(_faceCenter_x - 5, _faceCenter_y, _faceCenter_x + 5, _faceCenter_y, RGB565(242, 242, 33));
-      _spr->drawLine(_faceCenter_x, _faceCenter_y - 5, _faceCenter_x, _faceCenter_y + 5, RGB565(242, 242, 33));
-    }
-#endif
-  }
-
-  if (mouthCrosshair) {
-    if (mouthActive) {
-#if ARDUINO_GFX_AVAILABLE
-      if (canvasGfx != NULL) {
-        canvasGfx->drawLine(mouthLx - 5, mouthLy, mouthLx + 5, mouthLy, RGB565(255, 196, 0));
-        canvasGfx->drawLine(mouthLx, mouthLy - 5, mouthLx, mouthLy + 5, RGB565(255, 196, 0));
-      }
-#endif
-
-#if TFT_ESPI_AVAILABLE
-      if (_spr != NULL) {
-        _spr->drawLine(mouthLx - 5, mouthLy, mouthLx + 5, mouthLy, RGB565(255, 196, 0));
-        _spr->drawLine(mouthLx, mouthLy - 5, mouthLx, mouthLy + 5, RGB565(255, 196, 0));
-      }
-#endif
-    }
-  }
-
-  // if (_fps) {
-  //   canvasGfx->setCursor((_screenWidth / 2), 20);
-  //   //canvasGfx->setFont(&FreeSansBold10pt7b);
-  //   canvasGfx->setTextColor(GREEN);
-  //   //Serial.printf("FPS counter: %ld   Last FPS %ld\n", millis(), _lastFps);
-  //   canvasGfx->print(1000 / (millis() - _lastFps - _frameInterval));
-  //   canvasGfx->println(" FPS");
-  //   _lastFps = millis();
-  // }
+  stepEyes();
 }
 
 void Animated_Face::setAnimiationSpeed(float value) {
@@ -559,7 +551,7 @@ void Animated_Face::setAnimiationSpeed(float value) {
 
 
 
-void Animated_Face::drawEyes() {
+void Animated_Face::stepEyes() {
 
   // Left eye width
   _eyes[LEFT].width = (_eyes[LEFT].width + _eyes[LEFT_NEXT].width) / 2;
@@ -641,93 +633,6 @@ void Animated_Face::drawEyes() {
     }
   }
 
-  /*************************/
-  /* DRAW EYES and lidsS */
-  /*************************/
-#if ARDUINO_GFX_AVAILABLE
-  if (canvasGfx != NULL) {
-    // Draw basic eye shapes
-    canvasGfx->fillRoundRect(_eyes[LEFT].cX, _eyes[LEFT].cY, _eyes[LEFT].width, _eyes[LEFT].height + surprisedEyePadding, _eyes[LEFT].radius, _eyes[LEFT].color);  // left eye
-    if (!cyclops) {
-      canvasGfx->fillRoundRect(_eyes[RIGHT].cX, _eyes[RIGHT].cY, _eyes[RIGHT].width, _eyes[RIGHT].height + surprisedEyePadding, _eyes[RIGHT].radius, _eyes[RIGHT].color);  // right eye
-    }
-
-    if (!_eyes[LEFT].blinking)
-      canvasGfx->fillRoundRect(_eyes[LEFT].cX - 1, _eyes[LEFT].cY - 1, _eyes[LEFT].width + 2, 1, _eyes[LEFT].radius, _bgColor);
-    if (!cyclops) {
-      if (!_eyes[RIGHT].blinking)
-        canvasGfx->fillRoundRect(_eyes[RIGHT].cX - 1, _eyes[RIGHT].cY - 1, _eyes[RIGHT].width + 2, 1, _eyes[RIGHT].radius, _bgColor);  // right eye
-    }
-
-    // Draw eye lids
-    if (!cyclops) {
-      if (!_eyes[LEFT].blinking) {
-        //TOP
-        canvasGfx->fillRoundRect(_eyes[LEFT].cX, _eyes[LEFT].cY - 1, _eyes[LEFT].width + 2, _eyes[LEFT].lids[TOP].height, _eyes[LEFT].lids[TOP].radius, _bgColor);
-        canvasGfx->fillTriangle(_eyes[LEFT].cX, (_eyes[LEFT].cY + _eyes[LEFT].lids[TOP].y1) - 1, _eyes[LEFT].cX + _eyes[LEFT].width, (_eyes[LEFT].cY + _eyes[LEFT].lids[TOP].y2) - 1, _eyes[LEFT].cX, (_eyes[LEFT].cY + _eyes[LEFT].lids[TOP].y3) - 1, _bgColor);
-
-        // BOTTOM
-        canvasGfx->fillRoundRect(_eyes[LEFT].cX, (_eyes[LEFT].cY + _eyes[LEFT].height) - (_eyes[LEFT].lids[BOTTOM].height + 1), _eyes[LEFT].width + 2, _eyes[LEFT].lids[BOTTOM].height + 2, _eyes[LEFT].lids[BOTTOM].radius, _bgColor);
-        canvasGfx->fillTriangle(_eyes[LEFT].cX, (_eyes[LEFT].cY + _eyes[LEFT].lids[BOTTOM].y1) - 1, _eyes[LEFT].cX + _eyes[LEFT].width, (_eyes[LEFT].cY + _eyes[LEFT].lids[BOTTOM].y2) - 1, _eyes[LEFT].cX, (_eyes[LEFT].cY + _eyes[LEFT].lids[BOTTOM].y3) - 1, _bgColor);
-      }
-      if (!_eyes[RIGHT].blinking) {
-        //TOP
-        canvasGfx->fillRoundRect(_eyes[RIGHT].cX, _eyes[RIGHT].cY - 1, _eyes[RIGHT].width + 2, _eyes[RIGHT].lids[TOP].height, _eyes[RIGHT].lids[TOP].radius, _bgColor);
-        canvasGfx->fillTriangle(_eyes[RIGHT].cX, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[TOP].y1) - 1, _eyes[RIGHT].cX + _eyes[RIGHT].width, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[TOP].y2) - 1, _eyes[RIGHT].cX, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[TOP].y3) - 1, _bgColor);
-
-        // BOTTOM
-        canvasGfx->fillRoundRect(_eyes[RIGHT].cX, (_eyes[RIGHT].cY + _eyes[RIGHT].height) - (_eyes[RIGHT].lids[BOTTOM].height + 1), _eyes[RIGHT].width + 2, _eyes[RIGHT].lids[BOTTOM].height + 2, _eyes[RIGHT].lids[BOTTOM].radius, _bgColor);
-        canvasGfx->fillTriangle(_eyes[RIGHT].cX, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[BOTTOM].y1) - 1, _eyes[RIGHT].cX + _eyes[RIGHT].width, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[BOTTOM].y2) - 1, _eyes[RIGHT].cX, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[BOTTOM].y3) - 1, _bgColor);
-      }
-    } else {
-      //canvasGfx->fillTriangle(_eyes[LEFT].cX, _eyes[LEFT].cY - 1, _eyes[LEFT].cX + (_eyes[LEFT].width / 2), _eyes[LEFT].cY - 1, _eyes[LEFT].cX, _eyes[LEFT].cY + _emotions[VALUE].sadness - 1, _bgColor);                                          // left lids half
-      //canvasGfx->fillTriangle(_eyes[LEFT].cX + (_eyes[LEFT].width / 2), _eyes[LEFT].cY - 1, _eyes[LEFT].cX + _eyes[LEFT].width, _eyes[LEFT].cY - 1, _eyes[LEFT].cX + _eyes[LEFT].width, _eyes[LEFT].cY + _emotions[VALUE].sadness - 1, _bgColor);  // right lids half
-    }
-  }
-#endif
-
-#if TFT_ESPI_AVAILABLE
-  if (_spr != NULL) {
-    // Draw basic eye shapes
-    fillRoundRect(_eyes[LEFT].cX, _eyes[LEFT].cY - surprisedEyePadding, _eyes[LEFT].width, _eyes[LEFT].height + (2 * surprisedEyePadding), _eyes[LEFT].radius, _eyes[LEFT].color);  // left eye
-    if (!cyclops) {
-      fillRoundRect(_eyes[RIGHT].cX, _eyes[RIGHT].cY - surprisedEyePadding, _eyes[RIGHT].width, _eyes[RIGHT].height + (2 * surprisedEyePadding), _eyes[RIGHT].radius, _eyes[RIGHT].color);  // right eye
-    }
-
-    // lidssTiredHeight = (lidssTiredHeight + lidssTiredHeightNext) / 2;
-    // if (!_eyes[LEFT].blinking)
-    //   fillRoundRect(_eyes[LEFT].cX - 1, _eyes[LEFT].cY - 1, _eyes[LEFT].width + 2, 1, _eyes[LEFT].radius, _bgColor);
-    // if (!cyclops) {
-    //   if (!_eyes[RIGHT].blinking)
-    //     fillRoundRect(_eyes[RIGHT].cX - 1, _eyes[RIGHT].cY - 1, _eyes[RIGHT].width + 2, 1, _eyes[RIGHT].radius, _bgColor);  // right eye
-    // }
-
-    // Draw eye lids
-    if (!surprise) {
-      if (!cyclops) {
-        if (!_eyes[LEFT].blinking) {
-          //TOP
-          fillRoundRect(_eyes[LEFT].cX - 1, _eyes[LEFT].cY - 1, _eyes[LEFT].width + 2, _eyes[LEFT].lids[TOP].height, _eyes[LEFT].lids[TOP].radius, _bgColor);
-          _spr->fillTriangle(_eyes[LEFT].cX, (_eyes[LEFT].cY + _eyes[LEFT].lids[TOP].y1) - 1, _eyes[LEFT].cX + _eyes[LEFT].width, (_eyes[LEFT].cY + _eyes[LEFT].lids[TOP].y2) - 1, _eyes[LEFT].cX + _eyes[LEFT].lids[TOP].x3, (_eyes[LEFT].cY + _eyes[LEFT].lids[TOP].y3) - 1, _bgColor);
-
-          // BOTTOM
-          fillRoundRect(_eyes[LEFT].cX - 1, (_eyes[LEFT].cY + _eyes[LEFT].height) - (_eyes[LEFT].lids[BOTTOM].height), _eyes[LEFT].width + 2, _eyes[LEFT].lids[BOTTOM].height + 2, _eyes[LEFT].lids[BOTTOM].radius, _bgColor);
-          _spr->fillTriangle(_eyes[LEFT].cX, (_eyes[LEFT].cY + _eyes[LEFT].lids[BOTTOM].y1) - 1, _eyes[LEFT].cX + _eyes[LEFT].width, (_eyes[LEFT].cY + _eyes[LEFT].lids[BOTTOM].y2) - 1, _eyes[LEFT].cX + _eyes[LEFT].lids[BOTTOM].x3, (_eyes[LEFT].cY + _eyes[LEFT].lids[BOTTOM].y3) - 1, _bgColor);
-        }
-        if (!_eyes[RIGHT].blinking) {
-          //TOP
-          fillRoundRect(_eyes[RIGHT].cX - 1, _eyes[RIGHT].cY - 1, _eyes[RIGHT].width + 2, _eyes[RIGHT].lids[TOP].height, _eyes[RIGHT].lids[TOP].radius, _bgColor);
-          _spr->fillTriangle(_eyes[RIGHT].cX, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[TOP].y1) - 1, _eyes[RIGHT].cX + _eyes[RIGHT].width, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[TOP].y2) - 1, _eyes[RIGHT].cX + _eyes[RIGHT].lids[TOP].x3, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[TOP].y3) - 1, _bgColor);
-
-          // BOTTOM
-          fillRoundRect(_eyes[RIGHT].cX - 1, (_eyes[RIGHT].cY + _eyes[RIGHT].height) - (_eyes[RIGHT].lids[BOTTOM].height), _eyes[RIGHT].width + 2, _eyes[RIGHT].lids[BOTTOM].height + 2, _eyes[RIGHT].lids[BOTTOM].radius, _bgColor);
-          _spr->fillTriangle(_eyes[RIGHT].cX, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[BOTTOM].y1) - 1, _eyes[RIGHT].cX + _eyes[RIGHT].width, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[BOTTOM].y2) - 1, _eyes[RIGHT].cX + _eyes[RIGHT].lids[BOTTOM].x3, (_eyes[RIGHT].cY + _eyes[RIGHT].lids[BOTTOM].y3) - 1, _bgColor);
-        }
-      } else {
-      }
-    }
-  }
-#endif
 }
 
 //*********************************************************************************************
@@ -737,7 +642,7 @@ void Animated_Face::setMouthCrosshair(bool active) {
   mouthCrosshair = active;
 }
 
-void Animated_Face::drawMouth() {
+void Animated_Face::stepMouth() {
 
   mouthLx = _faceCenter_x;
   mouthLy = _faceCenter_y + mouthPaddingDefault;
@@ -781,29 +686,6 @@ void Animated_Face::drawMouth() {
   topMouthLip = (topMouthLip * _cur_value) + (topMouthLipNext * _nex_value);
   bottomMouthLip = (bottomMouthLip * _cur_value) + (bottomMouthLipNext * _nex_value);
 
-#if ARDUINO_GFX_AVAILABLE
-  if (canvasGfx != NULL) {
-    // Default mouth
-    canvasGfx->fillRoundRect(mouthLx - (mouthWidth / 2), mouthLy - surprisedPaddingNext, mouthWidth, mouthHeight + (2 * surprisedPaddingNext), mouthRadius, _mouthColor);
-
-    // Top Expression
-    canvasGfx->fillRoundRect(mouthLx - (mouthWidth / 2) - 1, mouthLy, mouthWidth + 2, topMouthLip, topMouthRadius, _bgColor);
-    // Bottom Expression
-    canvasGfx->fillRoundRect(mouthLx - (mouthWidth / 2) - 1, mouthLy + (mouthHeight / 5), mouthWidth + 2, bottomMouthLip, topMouthRadius, _bgColor);
-  }
-#endif
-
-#if TFT_ESPI_AVAILABLE
-  if (_spr != NULL) {
-    // Default mouth
-    fillRoundRect(mouthLx - (mouthWidth / 2), mouthLy - surprisedPaddingNext, mouthWidth, mouthHeight + (2 * surprisedPaddingNext), mouthRadius, _mouthColor);
-
-    // Top Expression
-    fillRoundRect(mouthLx - (mouthWidth / 2) - 1, mouthLy, mouthWidth + 2, topMouthLip, topMouthRadius, _bgColor);
-    // Bottom Expression
-    fillRoundRect(mouthLx - (mouthWidth / 2) - 1, mouthLy + (mouthHeight / 5), mouthWidth + 2, bottomMouthLip, topMouthRadius, _bgColor);
-  }
-#endif
 }
 
 //*********************************************************************************************
@@ -832,14 +714,95 @@ void Animated_Face::setCrosshair(bool active) {
   cross_hair = active;
 }
 
-void Animated_Face::fillRoundRect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint32_t color) {
-  if (_spr != NULL) {
-    int16_t max_radius = ((w < h) ? w : h) / 2;  // 1/2 minor axis
-    if (r > max_radius)
-      r = max_radius;
+//*********************************************************************************************
+//  RENDERING (LVGL primitives; eye shapes first, then lids in the background colour on top)
+//*********************************************************************************************
+void Animated_Face::drawCb(lv_event_t *e) {
+  Animated_Face *self = static_cast<Animated_Face *>(lv_event_get_user_data(e));
+  lv_area_t coords;
+  lv_obj_get_coords(self->_obj, &coords);
+  lv_layer_t *layer = lv_event_get_layer(e);
+  if (self->mouthActive) self->renderMouth(layer, coords.x1, coords.y1);
+  self->renderEyes(layer, coords.x1, coords.y1);
+}
 
-    _spr->fillRect(x, y + r, w, h - (r << 1), color);
-    _spr->fillCircleHelper(x + r, y + h - r - 1, r, 1, w - r - r - 1, color);
-    _spr->fillCircleHelper(x + r, y + r, r, 2, w - r - r - 1, color);
+void Animated_Face::fillRect(lv_layer_t *layer, int x, int y, int w, int h, int radius, uint16_t color) {
+  if (w <= 0 || h <= 0) return;
+  lv_draw_rect_dsc_t dsc;
+  lv_draw_rect_dsc_init(&dsc);
+  dsc.bg_color = toColor(color);
+  dsc.bg_opa = LV_OPA_COVER;
+  dsc.radius = radius < 0 ? 0 : radius;  // LVGL clamps to half the short side
+  lv_area_t a = {x, y, x + w - 1, y + h - 1};
+  lv_draw_rect(layer, &dsc, &a);
+}
+
+void Animated_Face::fillTri(lv_layer_t *layer, int x1, int y1, int x2, int y2, int x3, int y3, uint16_t color) {
+  lv_draw_triangle_dsc_t dsc;
+  lv_draw_triangle_dsc_init(&dsc);
+  dsc.p[0] = {(lv_value_precise_t)x1, (lv_value_precise_t)y1};
+  dsc.p[1] = {(lv_value_precise_t)x2, (lv_value_precise_t)y2};
+  dsc.p[2] = {(lv_value_precise_t)x3, (lv_value_precise_t)y3};
+  dsc.bg_color = toColor(color);
+  dsc.bg_opa = LV_OPA_COVER;
+  lv_draw_triangle(layer, &dsc);
+}
+
+void Animated_Face::drawCross(lv_layer_t *layer, int x, int y, uint16_t color) {
+  lv_draw_line_dsc_t line;
+  lv_draw_line_dsc_init(&line);
+  line.color = toColor(color);
+  line.width = 1;
+  line.p1 = {(lv_value_precise_t)(x - 5), (lv_value_precise_t)y};
+  line.p2 = {(lv_value_precise_t)(x + 5), (lv_value_precise_t)y};
+  lv_draw_line(layer, &line);
+  line.p1 = {(lv_value_precise_t)x, (lv_value_precise_t)(y - 5)};
+  line.p2 = {(lv_value_precise_t)x, (lv_value_precise_t)(y + 5)};
+  lv_draw_line(layer, &line);
+}
+
+void Animated_Face::renderEyes(lv_layer_t *layer, int ox, int oy) {
+  const int sides = cyclops ? 1 : 2;
+  const uint16_t bg = _debug ? _FakebgColor : _bgColor;
+
+  // Basic eye shapes
+  for (int s = 0; s < sides; s++) {
+    const eyes &eye = _eyes[s];
+    fillRect(layer, ox + eye.cX, oy + eye.cY - surprisedEyePadding, eye.width, eye.height + (2 * surprisedEyePadding), eye.radius, eye.color);
   }
+
+  // Eye lids: a rounded rect cut from the top/bottom plus a triangle for the slanted lids
+  if (!surprise && !cyclops) {
+    for (int s = 0; s < 2; s++) {
+      const eyes &eye = _eyes[s];
+      if (eye.blinking) continue;
+      const int x = ox + eye.cX;
+      const int y = oy + eye.cY;
+
+      // TOP
+      fillRect(layer, x - 1, y - 1, eye.width + 2, eye.lids[TOP].height, eye.lids[TOP].radius, bg);
+      fillTri(layer, x, y + eye.lids[TOP].y1 - 1, x + eye.width, y + eye.lids[TOP].y2 - 1, x + eye.lids[TOP].x3, y + eye.lids[TOP].y3 - 1, bg);
+
+      // BOTTOM
+      fillRect(layer, x - 1, y + eye.height - eye.lids[BOTTOM].height, eye.width + 2, eye.lids[BOTTOM].height + 2, eye.lids[BOTTOM].radius, bg);
+      fillTri(layer, x, y + eye.lids[BOTTOM].y1 - 1, x + eye.width, y + eye.lids[BOTTOM].y2 - 1, x + eye.lids[BOTTOM].x3, y + eye.lids[BOTTOM].y3 - 1, bg);
+    }
+  }
+
+  if (cross_hair) drawCross(layer, ox + _faceCenter_x, oy + _faceCenter_y, RGB565(242, 242, 33));
+}
+
+void Animated_Face::renderMouth(lv_layer_t *layer, int ox, int oy) {
+  const uint16_t bg = _debug ? _FakebgColor : _bgColor;
+  const int x = ox + mouthLx - (mouthWidth / 2);
+  const int y = oy + mouthLy;
+
+  // Default mouth
+  fillRect(layer, x, y - surprisedPaddingNext, mouthWidth, mouthHeight + (2 * surprisedPaddingNext), mouthRadius, _mouthColor);
+  // Top expression
+  fillRect(layer, x - 1, y, mouthWidth + 2, topMouthLip, topMouthRadius, bg);
+  // Bottom expression
+  fillRect(layer, x - 1, y + (mouthHeight / 5), mouthWidth + 2, bottomMouthLip, topMouthRadius, bg);
+
+  if (mouthCrosshair) drawCross(layer, ox + mouthLx, y, RGB565(255, 196, 0));
 }
