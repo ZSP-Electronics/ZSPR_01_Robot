@@ -5,11 +5,22 @@
 #include "INA232.h"
 #include "hardware_config.h"
 #include "board_io.h"
-#include "protocol_handlers.h"
 
 #define SYSTEM_OHM 0.005f // 5mOhm shunt resistor for system current
 #define MOTOR_OHM 0.005f  // 5mOhm shunt resistor
 #define CURRENT_MAX 16.0f // maximum expected current in Amps for calibration
+
+// Property IDs for Current_Module::get(). Values are the readings cached by
+// the last update().
+enum class CurrentProp : uint16_t
+{
+    SysVoltage_mV,   // get INT
+    SysCurrent_mA,   // get INT
+    SysPower_mW,     // get INT
+    MotorVoltage_mV, // get INT
+    MotorCurrent_mA, // get INT
+    MotorPower_mW,   // get INT
+};
 
 class Current_Module : public Universal_Module
 {
@@ -58,19 +69,24 @@ public:
         return SUCCESS;
     }
 
-    // ProtocolHandler-shaped so HAL_Robot_Module's CURRENT_READ_SYS/MOTOR
-    // handlers can call it directly against currSys/currMotor.
-    uint8_t readCurrentSensor(INA232 *sensor, uint8_t *resp, uint8_t &respLen)
+protected:
+    return_codes_t onGet(uint16_t id, Value &out) override
     {
-        putU16(resp + 0, (uint16_t)sensor->readBusVoltage_mV());
-        putS16(resp + 2, (int16_t)sensor->readCurrent_mA());
-        putU16(resp + 4, (uint16_t)sensor->readPower_mW());
-        return ok(respLen, 6);
+        if (!_initialized)
+            return ERROR;
+        switch ((CurrentProp)id)
+        {
+        case CurrentProp::SysVoltage_mV:   out = Value((int32_t)_sysVoltage_mV);   return SUCCESS;
+        case CurrentProp::SysCurrent_mA:   out = Value((int32_t)_sysCurrent_mA);   return SUCCESS;
+        case CurrentProp::SysPower_mW:     out = Value((int32_t)_sysPower_mW);     return SUCCESS;
+        case CurrentProp::MotorVoltage_mV: out = Value((int32_t)_motorVoltage_mV); return SUCCESS;
+        case CurrentProp::MotorCurrent_mA: out = Value((int32_t)_motorCurrent_mA); return SUCCESS;
+        case CurrentProp::MotorPower_mW:   out = Value((int32_t)_motorPower_mW);   return SUCCESS;
+        default:                           return NOT_SUPPORTED;
+        }
     }
 
 private:
-    bool _initialized = false;
-
     uint16_t _sysVoltage_mV = 0;
     int16_t _sysCurrent_mA = 0;
     uint16_t _sysPower_mW = 0;

@@ -30,7 +30,7 @@ namespace Outgoing
         {
             if (secondaryPeerOutgoing)
             {
-                BOTTANGO_SERIAL.print(str);
+                Serial.print(str);
             }
             else
             {
@@ -42,10 +42,10 @@ namespace Outgoing
         }
         else
         {
-            BOTTANGO_SERIAL.print(str);
+            Serial.print(str);
         }
 #elif defined(USE_USB_SERIAL)
-        BOTTANGO_SERIAL.print(str);
+        Serial.print(str);
 #elif defined(USE_ESP32_WIFI)
         BottangoCore::client.print(str);
 #endif
@@ -58,7 +58,7 @@ namespace Outgoing
         {
             if (secondaryPeerOutgoing)
             {
-                BOTTANGO_SERIAL.print(str);
+                Serial.print(str);
             }
             else
             {
@@ -70,10 +70,10 @@ namespace Outgoing
         }
         else
         {
-            BOTTANGO_SERIAL.print(str);
+            Serial.print(str);
         }
 #elif defined(USE_USB_SERIAL)
-        BOTTANGO_SERIAL.print(str);
+        Serial.print(str);
 #elif defined(USE_ESP32_WIFI)
         BottangoCore::client.print(str);
 #endif
@@ -138,7 +138,7 @@ namespace Outgoing
         {
             if (secondaryPeerOutgoing)
             {
-                BOTTANGO_SERIAL.print('\n');
+                Serial.print('\n');
             }
             else
             {
@@ -150,10 +150,10 @@ namespace Outgoing
         }
         else
         {
-            BOTTANGO_SERIAL.print('\n');
+            Serial.print('\n');
         }
 #elif defined(USE_USB_SERIAL)
-        BOTTANGO_SERIAL.println();
+        Serial.println();
 #elif defined(USE_ESP32_WIFI)
         BottangoCore::client.println();
 #endif
@@ -204,7 +204,7 @@ namespace Outgoing
 #ifdef RELAY_SUPPORTED
         if (secondaryPeerOutgoing)
         {
-            BOTTANGO_SERIAL.flush();
+            Serial.flush();
         }
         else
         {
@@ -214,7 +214,7 @@ namespace Outgoing
             }
         }
 #elif defined(USE_USB_SERIAL)
-        BOTTANGO_SERIAL.flush();
+        Serial.flush();
 #elif defined(USE_ESP32_WIFI)
         // BottangoCore::client.print(str);
 #endif

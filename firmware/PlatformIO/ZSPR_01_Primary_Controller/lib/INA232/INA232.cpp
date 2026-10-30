@@ -1,4 +1,5 @@
 #include "INA232.h"
+#include "bus_lock.h"
 
 namespace {
     constexpr uint8_t REG_CONFIG          = 0x00;
@@ -79,7 +80,10 @@ uint16_t INA232::readAlertStatus() {
     return readRegister(REG_MASK_ENABLE);
 }
 
+// Each register access holds the I2C bus lock (Wire is shared with the IO
+// expander, IMU, touch, ... and is not safe to use from two tasks at once).
 uint16_t INA232::readRegister(uint8_t reg) {
+    BusLock lock(Bus::I2C);
     _wire->beginTransmission(_address);
     _wire->write(reg);
     _wire->endTransmission(false);
@@ -91,6 +95,7 @@ uint16_t INA232::readRegister(uint8_t reg) {
 }
 
 void INA232::writeRegister(uint8_t reg, uint16_t value) {
+    BusLock lock(Bus::I2C);
     _wire->beginTransmission(_address);
     _wire->write(reg);
     _wire->write((uint8_t)(value >> 8));

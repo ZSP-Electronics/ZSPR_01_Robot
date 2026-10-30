@@ -1,4 +1,5 @@
 #include "KTS1622.h"
+#include "bus_lock.h"
 
 namespace
 {
@@ -35,14 +36,20 @@ void KTS1622::splitPin(uint8_t pin, uint8_t &port, uint8_t &bit)
     bit = pin & 0x07;
 }
 
+// Every access below holds the I2C bus lock: these are reached from any task
+// via board_pinMode/board_digitalWrite/board_digitalRead, and
+// writeRegisterBit() is a read-modify-write that must not interleave with
+// another task's write to the same register.
 bool KTS1622::begin()
 {
+    BusLock lock(Bus::I2C);
     _wire->beginTransmission(_address);
     return _wire->endTransmission() == 0;
 }
 
 uint8_t KTS1622::readRegister(uint8_t reg)
 {
+    BusLock lock(Bus::I2C);
     _wire->beginTransmission(_address);
     _wire->write(reg);
     _wire->endTransmission(false);
@@ -52,6 +59,7 @@ uint8_t KTS1622::readRegister(uint8_t reg)
 
 void KTS1622::writeRegister(uint8_t reg, uint8_t value)
 {
+    BusLock lock(Bus::I2C);
     _wire->beginTransmission(_address);
     _wire->write(reg);
     _wire->write(value);
@@ -60,6 +68,7 @@ void KTS1622::writeRegister(uint8_t reg, uint8_t value)
 
 void KTS1622::writeRegisterBit(uint8_t reg, uint8_t bit, bool value)
 {
+    BusLock lock(Bus::I2C); // spans the read and the write below
     uint8_t current = readRegister(reg);
     if (value)
     {
@@ -261,6 +270,7 @@ void KTS1622::setDebounceCount(uint8_t count)
 
 void KTS1622::resetAllDevicesOnBus(TwoWire &wirePort)
 {
+    BusLock lock(Bus::I2C);
     wirePort.beginTransmission(I2C_GENERAL_CALL_ADDRESS);
     wirePort.write(SOFTWARE_RESET_DATA);
     wirePort.endTransmission();

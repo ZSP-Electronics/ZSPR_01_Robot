@@ -58,6 +58,21 @@ struct BatteryPacket
     uint8_t crc;
 };
 
+// Property / command IDs for Battery_Module::get/command.
+enum class BatteryProp : uint16_t
+{
+    LinkUp,        // get BOOL  result of the most recent ping
+    PingFailures,  // get UINT  consecutive failed pings
+    PushSuspended, // get BOOL  current-power push stopped after repeated ping failures
+    VoltageMv,     // get UINT  battery voltage; TIMEOUT until a response has landed
+};
+
+enum class BatteryAction : uint16_t
+{
+    Ping,           // send a PING frame now
+    RequestVoltage, // send REQUEST_VOLTAGE; poll VoltageMv for the answer
+};
+
 class Battery_Module : public Universal_Module
 {
 public:
@@ -84,73 +99,68 @@ public:
 
     return_codes_t setup() override
     {
-        if (_enabled)
-        {
-            Serial2.begin(115200, SERIAL_8N1, BOARD_SERIAL_RX, BOARD_SERIAL_TX);
-            // module's setup() runs.
+        Serial2.begin(115200, SERIAL_8N1, BOARD_SERIAL_RX, BOARD_SERIAL_TX);
+        // module's setup() runs.
 #ifndef DISABLE_BATTERY_PING_CHECK
-            send_ping();
-            uint32_t start = millis();
-            while (_pingPending && (millis() - start) < BATTERY_RESPONSE_TIMEOUT_MS)
-                poll();
+        send_ping();
+        uint32_t start = millis();
+        while (_pingPending && (millis() - start) < BATTERY_RESPONSE_TIMEOUT_MS)
+            poll();
 
-            if (_pingPending)
-            {
-                setPingResult(false);
-                _pingPending = false;
-            }
+        if (_pingPending)
+        {
+            setPingResult(false);
+            _pingPending = false;
+        }
 #else
-            _linkStatus = SUCCESS; // ping check disabled -- assume the link is fine
+        _linkStatus = SUCCESS; // ping check disabled -- assume the link is fine
 #endif
 
-            uint32_t now = millis();
-            _lastPingMs = now;
-            _lastCurrentPushMs = now;
+        uint32_t now = millis();
+        _lastPingMs = now;
+        _lastCurrentPushMs = now;
 
-            _setupDone = true;
-            return _linkStatus;
-        }
+        _setupDone = true;
+        return _linkStatus;
+
         return SUCCESS;
     }
 
     return_codes_t update() override
     {
-        if (_enabled)
-        {
-            // Gated on setup() having run (Serial2 started), not on link
-            // status: a failed ping must keep being retried from here.
-            if (!_setupDone)
-                return ERROR;
+        // Gated on setup() having run (Serial2 started), not on link
+        // status: a failed ping must keep being retried from here.
+        if (!_setupDone)
+            return ERROR;
 
-            poll();
+        poll();
 
-            uint32_t now = millis();
+        uint32_t now = millis();
 
 #ifndef DISABLE_BATTERY_PING_CHECK
-            // Ping-based connectivity check, every BATTERY_PING_INTERVAL_MS.
-            if (_pingPending && (now - _pingRequestMs >= BATTERY_RESPONSE_TIMEOUT_MS))
-            {
-                setPingResult(false); // no response within the timeout window
-                _pingPending = false;
-            }
-            if (now - _lastPingMs >= BATTERY_PING_INTERVAL_MS)
-            {
-                _lastPingMs = now;
-                send_ping();
-            }
+        // Ping-based connectivity check, every BATTERY_PING_INTERVAL_MS.
+        if (_pingPending && (now - _pingRequestMs >= BATTERY_RESPONSE_TIMEOUT_MS))
+        {
+            setPingResult(false); // no response within the timeout window
+            _pingPending = false;
+        }
+        if (now - _lastPingMs >= BATTERY_PING_INTERVAL_MS)
+        {
+            _lastPingMs = now;
+            send_ping();
+        }
 #endif
 
-            // Periodic INA232 current/power push, every BATTERY_CURRENT_PUSH_INTERVAL_MS.
-            // Suspended once the link has failed BATTERY_MAX_CONSECUTIVE_PING_FAILURES
-            // pings in a row -- no point pushing data to a board that isn't answering.
-            if (_currentSource && !current_push_suspended() &&
-                (now - _lastCurrentPushMs >= BATTERY_CURRENT_PUSH_INTERVAL_MS))
-            {
-                _lastCurrentPushMs = now;
-                CurrentReadings r = _currentSource();
-                send_current_power(r.sysBus_mV, r.sysCurrent_mA, r.sysPower_mW,
-                                    r.motorBus_mV, r.motorCurrent_mA, r.motorPower_mW);
-            }
+        // Periodic INA232 current/power push, every BATTERY_CURRENT_PUSH_INTERVAL_MS.
+        // Suspended once the link has failed BATTERY_MAX_CONSECUTIVE_PING_FAILURES
+        // pings in a row -- no point pushing data to a board that isn't answering.
+        if (_currentSource && !current_push_suspended() &&
+            (now - _lastCurrentPushMs >= BATTERY_CURRENT_PUSH_INTERVAL_MS))
+        {
+            _lastCurrentPushMs = now;
+            CurrentReadings r = _currentSource();
+            send_current_power(r.sysBus_mV, r.sysCurrent_mA, r.sysPower_mW,
+                               r.motorBus_mV, r.motorCurrent_mA, r.motorPower_mW);
         }
         return SUCCESS;
     }
@@ -197,7 +207,7 @@ public:
     // is attached (see attach_current_source()); exposed publicly for an
     // on-demand push too.
     bool send_current_power(uint16_t sysBus_mV, int16_t sysCurrent_mA, uint16_t sysPower_mW,
-                             uint16_t motorBus_mV, int16_t motorCurrent_mA, uint16_t motorPower_mW)
+                            uint16_t motorBus_mV, int16_t motorCurrent_mA, uint16_t motorPower_mW)
     {
         uint8_t payload[12];
         putU16(payload + 0, sysBus_mV);
@@ -227,6 +237,45 @@ public:
     bool voltage_request_pending(void) const
     {
         return _voltagePending && (millis() - _voltageRequestMs < BATTERY_RESPONSE_TIMEOUT_MS);
+    }
+
+protected:
+    return_codes_t onGet(uint16_t id, Value &out) override
+    {
+        switch ((BatteryProp)id)
+        {
+        case BatteryProp::LinkUp:
+            out = Value(is_link_up());
+            return SUCCESS;
+        case BatteryProp::PingFailures:
+            out = Value((uint32_t)_consecutivePingFailures);
+            return SUCCESS;
+        case BatteryProp::PushSuspended:
+            out = Value(current_push_suspended());
+            return SUCCESS;
+        case BatteryProp::VoltageMv:
+            if (!_haveVoltage)
+                return TIMEOUT;
+            out = Value((uint32_t)_batteryVoltage_mV);
+            return SUCCESS;
+        default:
+            return NOT_SUPPORTED;
+        }
+    }
+
+    return_codes_t onCommand(uint16_t id, const Value &in, Value &out) override
+    {
+        (void)in;
+        (void)out;
+        switch ((BatteryAction)id)
+        {
+        case BatteryAction::Ping:
+            return send_ping() ? SUCCESS : ERROR;
+        case BatteryAction::RequestVoltage:
+            return request_battery_voltage() ? SUCCESS : ERROR;
+        default:
+            return NOT_SUPPORTED;
+        }
     }
 
 private:

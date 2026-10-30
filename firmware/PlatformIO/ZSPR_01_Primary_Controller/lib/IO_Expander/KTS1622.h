@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include "ExpanderSPI.hpp"
 // #include "board_io.h"
 // #include "io_defines.h"
 
@@ -91,7 +92,8 @@ enum KTS1622_InterruptEdge : uint8_t {
 
 // Driver for the Kinetic Technologies KTS1622 low-voltage 16-bit I2C I/O expander.
 // The caller is responsible for calling wirePort.begin(...) before begin().
-class KTS1622 {
+class KTS1622 : public ExpanderSPI<KTS1622> {
+    friend class ExpanderSPI<KTS1622>;
 public:
     explicit KTS1622(uint8_t i2cAddress = KTS1622_ADDR_GND, TwoWire &wirePort = Wire);
 
@@ -166,7 +168,8 @@ private:
 // etc. This keeps the chain helper in the same file as the single-chip driver.
 // ---------------------------------------------------------------------------
 
-class KTS1622_IO_Expander {
+class KTS1622_IO_Expander : public ExpanderSPI<KTS1622_IO_Expander> {
+    friend class ExpanderSPI<KTS1622_IO_Expander>;
 public:
     enum : uint8_t { MAX_MODULES = 4 };
 

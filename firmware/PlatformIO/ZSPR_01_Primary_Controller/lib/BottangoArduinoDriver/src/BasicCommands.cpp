@@ -91,7 +91,7 @@ namespace BasicCommands
         // complete
         Outgoing::printLine();
 
-        BOTTANGO_SERIAL.flush();
+        Serial.flush();
 
         if (!secondary)
         {

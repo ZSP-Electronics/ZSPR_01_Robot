@@ -1,6 +1,6 @@
 #pragma once
 
-#define RGB_MAX_PIXEL_CLOCK_HZ  (8000000UL)
+#define RGB_MAX_PIXEL_CLOCK_HZ  (30000000UL)
 
 #define BOARD_TFT_WIDTH      (480)
 #define BOARD_TFT_HEIGHT     (480)
@@ -25,7 +25,7 @@
 #define BOARD_TFT_B4      (12)   //B4
 #define BOARD_TFT_B5      (13)   //B5    MSB
 
-#define BOARD_TFT_G0      (21)   //G0
+#define BOARD_TFT_G0      (3)   //G0
 #define BOARD_TFT_G1      (21)   //G1
 #define BOARD_TFT_G2      (47)   //G2
 #define BOARD_TFT_G3      (48)   //G3
@@ -64,7 +64,7 @@
 #define BOARD_SERIAL_RX      (2)
 #define BOARD_MOTOR_TX       (43)
 #define BOARD_MOTOR_RX       (44)
-#define BOARD_BUZZER         (3)
+// #define BOARD_BUZZER         (3)
 
 // #define BOARD_IO1_INT        IO_PIN_0
 // #define BOARD_IO1_RST        IO_PIN_1

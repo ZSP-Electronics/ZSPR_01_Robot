@@ -31,6 +31,16 @@
 #include "Simple_Display.h"
 #include "board_io.h"
 
+// constexpr, not #define: names like Resolution/Frequency are far too generic
+// to be macros -- a macro here silently rewrites any enum member or variable
+// of the same name in every file that includes this header (it broke
+// TofProp::Resolution).
+constexpr uint8_t PWM_Channel = 1;    // PWM Channel
+constexpr uint32_t Frequency = 20000; // PWM frequency
+constexpr uint8_t Resolution = 10;    // PWM resolution ratio     MAX:13
+constexpr uint16_t Dutyfactor = 500;  // PWM Dutyfactor
+constexpr uint8_t Backlight_MAX = 100;
+
 enum RGBPanel_Color_Order
 {
     RGB_ORDER_RGB,
@@ -72,6 +82,14 @@ struct disp_lcd_panel_config_t
     int b3_pin;
     int b4_pin;
     int b5_pin;
+
+    // bool hardware_spi;
+
+    // Buffering (ESP-IDF 5.x RGB driver). 2 frame buffers + vsync swap give tear-free output;
+    // begin() falls back to 1 if the driver cannot allocate/run with 2.
+    uint8_t num_fbs = 2;
+    // Height of the internal-RAM bounce buffer in lines (width*height must divide evenly by it).
+    uint16_t bounce_lines = 20;
 };
 
 class RGBPanel : public Simple_Display
@@ -91,7 +109,15 @@ public:
 
     void pushColors(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *data);
 
+    // Frame buffers owned by the RGB driver (1 or 2, see disp_lcd_panel_config_t::num_fbs).
+    uint8_t frameBufferCount() const { return _numFbs; }
+    uint16_t *frameBuffer(uint8_t i); // nullptr if i >= frameBufferCount()
+
+    // Double-buffer path: switch scan-out to `fb` (one of frameBuffer()) at the next vsync and wait for it.
+    void showFrameBuffer(uint16_t *fb, uint32_t timeout_ms = 100);
+
 private:
+    void writeData(uint8_t data);
     void writeData(const uint8_t *data, int len);
     void writeCommand(const uint8_t cmd);
     void releaseBus();
@@ -127,4 +153,8 @@ private:
 
     bool _has_init;
     bool _IO_Init;
+
+    uint8_t _numFbs = 0;
+    uint16_t *_fbs[2] = {nullptr, nullptr};
+    SemaphoreHandle_t _vsync = nullptr;
 };

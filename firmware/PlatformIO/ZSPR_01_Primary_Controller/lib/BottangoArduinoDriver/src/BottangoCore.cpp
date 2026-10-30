@@ -178,7 +178,7 @@ namespace BottangoCore
 
     void initUSBSerialComms()
     {
-        // [ZSPR] port is owned and begun by the host (HostLink); nothing to do
+        Serial.begin(BAUD_RATE);
 #ifdef RELAY_SUPPORTED
         if (isRelayPeer)
         {
@@ -296,7 +296,7 @@ namespace BottangoCore
     void initESP32WifiComs()
     {
 #ifdef ESP32WIFI_LOGGING
-        // [ZSPR] port is owned and begun by the host (HostLink); nothing to do
+        Serial.begin(BAUD_RATE);
 #endif
         // begin async callback to check for connection state
         WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info)
@@ -978,9 +978,9 @@ namespace BottangoCore
     void uninitialize()
     {
         BottangoCore::effectorPool.deregisterAll();
-        while (BOTTANGO_SERIAL.available() > 0)
+        while (Serial.available() > 0)
         {
-            char t = BOTTANGO_SERIAL.read();
+            char t = Serial.read();
         }
         initialized = false;
         commandInProgress = false;
@@ -1389,7 +1389,7 @@ namespace BottangoCore
         {
             if (secondary)
             {
-                return BOTTANGO_SERIAL.available() > 0;
+                return Serial.available() > 0;
             }
             else
             {
@@ -1402,11 +1402,11 @@ namespace BottangoCore
         }
         else
         {
-            return BOTTANGO_SERIAL.available() > 0;
+            return Serial.available() > 0;
         }
 
 #elif defined(USE_USB_SERIAL)
-        return BOTTANGO_SERIAL.available() > 0;
+        return Serial.available() > 0;
 
 #elif defined(USE_ESP32_WIFI)
         return client.available() > 0;
@@ -1421,7 +1421,7 @@ namespace BottangoCore
         {
             if (secondary)
             {
-                return BOTTANGO_SERIAL.read();
+                return Serial.read();
             }
             else
             {
@@ -1434,10 +1434,10 @@ namespace BottangoCore
         }
         else
         {
-            return BOTTANGO_SERIAL.read();
+            return Serial.read();
         }
 #elif defined(USE_USB_SERIAL)
-        return BOTTANGO_SERIAL.read();
+        return Serial.read();
 
 #elif defined(USE_ESP32_WIFI)
         return client.read();

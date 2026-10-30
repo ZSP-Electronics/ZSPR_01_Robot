@@ -4,13 +4,6 @@
 #include "BottangoArduinoModules.h"
 #include <Arduino.h>
 
-// [ZSPR] The USB-CDC port is shared with HostLink (CLI + binary protocol), so
-// the driver talks through a Stream supplied by BottangoLink rather than the
-// global `Serial`. Upstream `Serial.` references in src/ were rewritten to
-// BOTTANGO_SERIAL. -- see lib/Bottango/ZSPR_PATCHES.md.
-Stream &bottangoSerial();
-#define BOTTANGO_SERIAL bottangoSerial()
-
 // !! Max Registered Motors !!
 // Max effectors (motors, etc.) that can be registered at once.
 // more than 8 crashes an Arduino Uno / Nano

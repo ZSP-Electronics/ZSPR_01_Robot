@@ -19,8 +19,16 @@
 static const lcd_init_cmd_t *_init_cmd = NULL;
 static spi_device_handle_t _display_spi = NULL;
 
+// Called from the RGB driver's vsync interrupt.
+static bool IRAM_ATTR onVsync(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t *, void *ctx)
+{
+  BaseType_t woken = pdFALSE;
+  xSemaphoreGiveFromISR((SemaphoreHandle_t)ctx, &woken);
+  return woken == pdTRUE;
+}
+
 RGBPanel::RGBPanel(/* args */)
-    : _brightness(0), _panelDrv(NULL),
+    : _brightness(100), _panelDrv(NULL),
       _order(RGB_ORDER_RGB),
       _has_init(false),
       _IO_Init(false)
@@ -55,6 +63,9 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
     board_pinMode(_disp->rst_pin, OUTPUT);
     board_pinMode(_disp->bl_pin, OUTPUT);
   }
+
+  // ledcAttach(_disp->bl_pin, Frequency, Resolution);
+  setBrightness(_brightness);
 
   Panel_Reset();
 
@@ -94,10 +105,8 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   for (int i = 0; i < ST7701_2_8_INCH_DATA_COMMANDS; i++)
   {
     writeCommand(_init_cmd[i].cmd);
-    Serial.printf("Writing command: 0x%02X\n", _init_cmd[i].cmd);
     if (_init_cmd[i].databytes > 0)
     {
-      Serial.printf("Writing %d data bytes\n", _init_cmd[i].databytes);
       writeData(_init_cmd[i].data, _init_cmd[i].databytes);
     }
     if (_init_cmd[i].delay > 0)
@@ -105,6 +114,7 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
       delay(_init_cmd[i].delay);
     }
   }
+
   Panel_CS_DIS();
 
   log_i("=================Complete Init Cmd====================");
@@ -131,6 +141,7 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
       _disp->b5_pin,
   };
 
+#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION <= ESP_IDF_VERSION_VAL(5, 5, 0) // ESP-IDF version 5.5
   esp_lcd_rgb_panel_config_t panel_config = {
       .clk_src = LCD_CLK_SRC_PLL160M,
       .timings = {
@@ -162,7 +173,43 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
       .flags = {
           .fb_in_psram = 1, // allocate frame buffer in PSRAM
       },
+
   };
+#elif ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(5, 5, 5) // ESP-IDF version 5.5
+  // ESP-IDF version greater than 5.5
+  // Define the panel_config for newer ESP-IDF versions here
+  const int bus_rgb_order[SOC_LCD_RGB_DATA_WIDTH] = {
+      _disp->b1_pin, _disp->b2_pin, _disp->b3_pin, _disp->b4_pin, _disp->b5_pin,
+      _disp->g0_pin, _disp->g1_pin, _disp->g2_pin, _disp->g3_pin, _disp->g4_pin, _disp->g5_pin,
+      _disp->r1_pin, _disp->r2_pin, _disp->r3_pin, _disp->r4_pin, _disp->r5_pin};
+
+  esp_lcd_rgb_panel_config_t panel_config = {};
+  panel_config.clk_src = LCD_CLK_SRC_PLL240M;
+  panel_config.timings.pclk_hz = _disp->pclk_freq;
+  panel_config.timings.h_res = _disp->width;
+  panel_config.timings.v_res = _disp->height;
+  panel_config.timings.hsync_pulse_width = 8;
+  panel_config.timings.hsync_back_porch = 10;
+  panel_config.timings.hsync_front_porch = 50;
+  panel_config.timings.vsync_pulse_width = 2;
+  panel_config.timings.vsync_back_porch = 18;
+  panel_config.timings.vsync_front_porch = 8;
+  panel_config.timings.flags.pclk_active_neg = 0;
+  panel_config.data_width = 16; // RGB565 in parallel mode, thus 16bit in width
+  panel_config.bits_per_pixel = 16;
+  panel_config.num_fbs = (_disp->num_fbs > 1) ? 2 : 1;
+  // The CPU copies stripes of the PSRAM frame buffer into small internal-RAM bounce buffers, so the
+  // pixel clock is no longer limited by PSRAM DMA latency. Must divide width*height evenly.
+  panel_config.bounce_buffer_size_px = (size_t)_disp->bounce_lines * _disp->width;
+  panel_config.dma_burst_size = 64;
+  panel_config.hsync_gpio_num = _disp->hsync_pin;
+  panel_config.vsync_gpio_num = _disp->vsync_pin;
+  panel_config.de_gpio_num = _disp->de_pin;
+  panel_config.pclk_gpio_num = _disp->pclk_pin;
+  panel_config.disp_gpio_num = GPIO_NUM_NC;
+  memcpy(panel_config.data_gpio_nums, bus_rgb_order, sizeof(bus_rgb_order));
+  panel_config.flags.fb_in_psram = 1; // allocate frame buffer(s) in PSRAM
+#endif
 
   if (_order == RGB_ORDER_BGR)
   {
@@ -178,16 +225,39 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
            sizeof(panel_config.data_gpio_nums));
   }
 
-  ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_config, &_panelDrv));
-  // esp_lcd_rgb_panel_event_callbacks_t cbs = {
-  //   .on_vsync = example_on_vsync_event,
-  // };
-  // esp_lcd_rgb_panel_register_event_callbacks(_panelDrv, &cbs, &disp_drv);
+  err = esp_lcd_new_rgb_panel(&panel_config, &_panelDrv);
+  if (err != ESP_OK && panel_config.num_fbs > 1)
+  {
+    Serial.printf("RGB panel with %d frame buffers failed (%s), retrying with 1\n", panel_config.num_fbs, esp_err_to_name(err));
+    panel_config.num_fbs = 1;
+    err = esp_lcd_new_rgb_panel(&panel_config, &_panelDrv);
+  }
+  if (err != ESP_OK)
+  {
+    Serial.printf("RGB panel create failed: %s\n", esp_err_to_name(err));
+    _panelDrv = NULL;
+    return false;
+  }
+  _numFbs = panel_config.num_fbs;
+
+  _vsync = xSemaphoreCreateBinary();
+  esp_lcd_rgb_panel_event_callbacks_t cbs = {};
+  cbs.on_vsync = onVsync;
+  ESP_ERROR_CHECK(esp_lcd_rgb_panel_register_event_callbacks(_panelDrv, &cbs, _vsync));
+
   ESP_ERROR_CHECK(esp_lcd_panel_reset(_panelDrv));
   ESP_ERROR_CHECK(esp_lcd_panel_init(_panelDrv));
 
-  setBrightness(255);
-  // releaseBus();
+  void *fb0 = nullptr, *fb1 = nullptr;
+  if (_numFbs == 2)
+    ESP_ERROR_CHECK(esp_lcd_rgb_panel_get_frame_buffer(_panelDrv, 2, &fb0, &fb1));
+  else
+    ESP_ERROR_CHECK(esp_lcd_rgb_panel_get_frame_buffer(_panelDrv, 1, &fb0));
+  _fbs[0] = (uint16_t *)fb0;
+  _fbs[1] = (uint16_t *)fb1;
+  Serial.printf("RGB panel up: %ux%u, %u frame buffer(s), pclk %u Hz\n", _disp->width, _disp->height, _numFbs, (unsigned)_disp->pclk_freq);
+
+    // releaseBus();
 
   return true;
 }
@@ -202,6 +272,15 @@ void RGBPanel::setBrightness(uint8_t value)
   {
     board_digitalWrite(_disp->bl_pin, LOW);
   }
+  // if (value > Backlight_MAX)
+  // {
+  //   // printf("Set Backlight parameters in the range of 0 to 100 \r\n");
+  //   return;
+  // }
+
+  // const uint32_t maxDuty = (1U << Resolution) - 1;
+  // const uint32_t backlight = (static_cast<uint32_t>(value) * maxDuty) / Backlight_MAX;
+  // ledcWrite(_disp->bl_pin, backlight); // Arduino-ESP32 3.x: LEDC is addressed by pin
   _brightness = value;
 }
 
@@ -222,53 +301,107 @@ uint16_t RGBPanel::height()
 
 void RGBPanel::releaseBus()
 {
-  // if (SPI_handle == nullptr)
-  // {
-  //   return;
-  // }
+  if (_display_spi == nullptr)
+  {
+    return;
+  }
 
-  // esp_err_t ret = spi_bus_remove_device(SPI_handle);
-  // if (ret != ESP_OK)
-  // {
-  //   log_e("Failed to remove display SPI device: %s", esp_err_to_name(ret));
-  //   return;
-  // }
+  esp_err_t ret = spi_bus_remove_device(_display_spi);
+  if (ret != ESP_OK)
+  {
+    log_e("Failed to remove display SPI device: %s", esp_err_to_name(ret));
+    return;
+  }
 
-  // SPI_handle = nullptr;
-  // ret = spi_bus_free(SPI2_HOST);
-  // if (ret != ESP_OK)
-  // {
-  //   log_e("Failed to free display SPI bus: %s", esp_err_to_name(ret));
-  // }
+  _display_spi = nullptr;
+  ret = spi_bus_free(SPI2_HOST);
+  if (ret != ESP_OK)
+  {
+    log_e("Failed to free display SPI bus: %s", esp_err_to_name(ret));
+  }
 }
 
 void RGBPanel::writeCommand(const uint8_t cmd)
 {
-  spi_transaction_t transaction = {
-      .cmd = 0,
-      .addr = cmd,
-      .length = 0,
-      .rxlength = 0,
-  };
-  ESP_ERROR_CHECK(spi_device_transmit(_display_spi, &transaction));
-}
-
-void RGBPanel::writeData(const uint8_t *data, int len)
-{
-  for (int i = 0; i < len; ++i)
-  {
+  // if (_disp->hardware_spi)
+  // {
     spi_transaction_t transaction = {
-        .cmd = 1,
-        .addr = data[i],
+        .cmd = 0,
+        .addr = cmd,
         .length = 0,
         .rxlength = 0,
     };
     ESP_ERROR_CHECK(spi_device_transmit(_display_spi, &transaction));
-  }
+  // }
+  // else
+  // {
+  //   uint16_t data = cmd;
+  //   expander.transfer9(data);
+  // }
+}
+
+void RGBPanel::writeData(uint8_t data)
+{
+  spi_transaction_t spi_tran = {
+      .cmd = 1,
+      .addr = data,
+      .length = 0,
+      .rxlength = 0,
+  };
+  spi_device_transmit(_display_spi, &spi_tran);
+}
+
+void RGBPanel::writeData(const uint8_t *data, int len)
+{
+  // if (_disp->hardware_spi)
+  // {
+    for (int i = 0; i < len; ++i)
+    {
+      spi_transaction_t transaction = {
+          .cmd = 1,
+          .addr = data[i],
+          .length = 0,
+          .rxlength = 0,
+      };
+      ESP_ERROR_CHECK(spi_device_transmit(_display_spi, &transaction));
+    }
+  // }
+  // else
+  // {
+  //   uint32_t i = 0;
+  //   if (len > 0)
+  //   {
+  //     do
+  //     {
+  //       // The ninth bit of data, 1, represents data, 0 represents command
+  //       uint16_t pdat = (*(data + i)) | 1 << 8;
+  //       expander.transfer9(pdat);
+  //       i++;
+  //     } while (len--);
+  //   }
+  // }
 }
 
 void RGBPanel::pushColors(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t *data)
 {
   assert(_panelDrv);
-  esp_lcd_panel_draw_bitmap(_panelDrv, x, y, width, height, data);
+  esp_lcd_panel_draw_bitmap(_panelDrv, x, y, x + width, y + height, data);
+}
+
+uint16_t *RGBPanel::frameBuffer(uint8_t i)
+{
+  return (i < _numFbs) ? _fbs[i] : nullptr;
+}
+
+void RGBPanel::showFrameBuffer(uint16_t *fb, uint32_t timeout_ms)
+{
+  assert(_panelDrv);
+  xSemaphoreTake(_vsync, 0); // drop a stale vsync
+  // Passing one of the driver's own frame buffers makes it switch scan-out to it at the next vsync, no copy.
+  esp_lcd_panel_draw_bitmap(_panelDrv, 0, 0, _disp->width, _disp->height, fb);
+  xSemaphoreTake(_vsync, pdMS_TO_TICKS(timeout_ms));
+  // With bounce buffers the driver has already prefetched the first lines of the next frame from the old
+  // buffer when this vsync fires, so scan-out can still be reading it. Wait one more frame before the caller
+  // (LVGL) starts drawing into the old buffer, otherwise partial updates tear and leave artifacts.
+  xSemaphoreTake(_vsync, pdMS_TO_TICKS(timeout_ms));
 }

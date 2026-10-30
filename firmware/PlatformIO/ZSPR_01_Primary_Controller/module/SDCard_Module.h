@@ -36,6 +36,25 @@ inline __attribute__((used)) void sdCsWrite(SdCsPin_t pin, bool level)
     board_digitalWrite(pin, level ? HIGH : LOW);
 }
 
+// Property / command IDs for SDCard_Module::get/command.
+enum class SdProp : uint16_t
+{
+    Mounted,    // get BOOL
+    CardDetect, // get BOOL  raw BOARD_SDMMC_DET level, as sampled by update()
+    FatType,    // get UINT
+    TotalKB,    // get UINT
+    FreeKB,     // get UINT
+};
+
+enum class SdCmd : uint16_t
+{
+    Mount,  // (re)mount the volume
+    Exists, // in: Value::str(path)  out: BOOL
+    Mkdir,  // in: Value::str(path)
+    Remove, // in: Value::str(path)
+    Rmdir,  // in: Value::str(path)
+};
+
 // Thin wrapper around SdFat that mirrors the shape of the stock Arduino SD
 // library (begin/exists/open/mkdir/remove/rmdir, File-like read/write/print),
 // but drives its chip select through board_pinMode/board_digitalWrite so it
@@ -45,7 +64,10 @@ class SDCard_Module : public Universal_Module
 public:
     using File = FsFile;
 
-    SDCard_Module(bool enable) : Universal_Module(enable) {}
+    SDCard_Module(bool enable) : Universal_Module(enable)
+    {
+        _buses = BUS_MASK_SPI; // SdFat on the shared SPI bus; CS goes through the expander
+    }
 
     return_codes_t setup() override
     {
@@ -142,6 +164,65 @@ public:
         }
         root.close();
         return count;
+    }
+
+protected:
+    return_codes_t onGet(uint16_t id, Value &out) override
+    {
+        switch ((SdProp)id)
+        {
+        case SdProp::Mounted:
+            out = Value(_mounted);
+            return SUCCESS;
+        case SdProp::CardDetect:
+            out = Value(_cardPresent);
+            return SUCCESS;
+        case SdProp::FatType:
+            if (!_mounted)
+                return ERROR;
+            out = Value((uint32_t)fat_type());
+            return SUCCESS;
+        case SdProp::TotalKB:
+            if (!_mounted)
+                return ERROR;
+            out = Value((uint32_t)total_space_kb());
+            return SUCCESS;
+        case SdProp::FreeKB:
+            if (!_mounted)
+                return ERROR;
+            out = Value((uint32_t)free_space_kb());
+            return SUCCESS;
+        default:
+            return NOT_SUPPORTED;
+        }
+    }
+
+    return_codes_t onCommand(uint16_t id, const Value &in, Value &out) override
+    {
+        SdCmd cmd = (SdCmd)id;
+        if (cmd == SdCmd::Mount)
+            return mount() ? SUCCESS : ERROR;
+
+        const char *path = in.asCStr();
+        if (!path)
+            return INVALID_PARAM;
+        if (!_mounted)
+            return ERROR;
+
+        switch (cmd)
+        {
+        case SdCmd::Exists:
+            out = Value(exists(path));
+            return SUCCESS;
+        case SdCmd::Mkdir:
+            return mkdir(path) ? SUCCESS : ERROR;
+        case SdCmd::Remove:
+            return remove(path) ? SUCCESS : ERROR;
+        case SdCmd::Rmdir:
+            return rmdir(path) ? SUCCESS : ERROR;
+        default:
+            return NOT_SUPPORTED;
+        }
     }
 
 private:

@@ -29,18 +29,18 @@
 // selecting nothing is USB control
 // otherwise select one of the below:
 
-#define USE_CODE_COMMAND_STREAM                             // uncomment this line to drive animations from exported code instead of live control
+// #define USE_CODE_COMMAND_STREAM                             // uncomment this line to drive animations from exported code instead of live control
 // #define USE_SD_CARD_COMMAND_STREAM                       // uncomment this line to drive animations from files on an SD card instead of live control (Note, Arduino Uno / Nano / mega not supported)
 
 
 // if you have selected one of the above, enable this to dynamically switch between USB or the selected above exported animation source
-#define ENABLE_DYNAMIC_ANIMATION_SOURCE_SWITCH              // uncomment this line to allow to switch between live control or saved animation playback without reflashing firmware.
+// #define ENABLE_DYNAMIC_ANIMATION_SOURCE_SWITCH              // uncomment this line to allow to switch between live control or saved animation playback without reflashing firmware.
 
 
 // ---------------------------------- //
 
 // !! PCA9685 !!
-#define USE_ADAFRUIT_PWM_LIBRARY                         //uncomment this line to enable the Adafruit PCA9685 Servo Driver (i2s and pin)
+// #define USE_ADAFRUIT_PWM_LIBRARY                         //uncomment this line to enable the Adafruit PCA9685 Servo Driver (i2s and pin)
 
 // ---------------------------------- //
 
