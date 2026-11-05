@@ -39,8 +39,8 @@ static void MX_GPIO_Init_LL(void)
   LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
   LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOB);
 
-  LL_GPIO_ResetOutputPin(GPIOA, GPIO_PIN_3 | GPIO_PIN_6);
-  LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
+  // LL_GPIO_ResetOutputPin(GPIOA, GPIO_PIN_3 | GPIO_PIN_6);
+  // LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
 
   /* PC14 PC15 : Analog */
   GPIO_InitStruct.Pin = GPIO_PIN_14 | GPIO_PIN_15;
@@ -60,14 +60,14 @@ static void MX_GPIO_Init_LL(void)
   GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;
   LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* PA2 : Input, no pull */
-  GPIO_InitStruct.Pin = GPIO_PIN_2 | GPIO_PIN_3;
+  /* PA2 PA6 : Input, no pull */
+  GPIO_InitStruct.Pin = GPIO_PIN_2 | GPIO_PIN_6;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* PA3 PA6 : Output push-pull */
-  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  /* PA3 PA15 : Output push-pull */
+  GPIO_InitStruct.Pin = GPIO_PIN_3 | GPIO_PIN_15;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
@@ -82,20 +82,20 @@ static void MX_GPIO_Init_LL(void)
   GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
   LL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
 
-  /* PB1 : Input, no pull */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /* PA11 PA12 PA15 : Analog */
-  GPIO_InitStruct.Pin = GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_15;
+  /* PA11 PA12 : Analog */
+  GPIO_InitStruct.Pin = GPIO_PIN_11 | GPIO_PIN_12;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* PB3 PB4 PB5 PB8 : Analog */
-  GPIO_InitStruct.Pin = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_8;
+  /* PB3 : Input, no pull */
+  GPIO_InitStruct.Pin = GPIO_PIN_3;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* PB4 PB5 PB8 : Analog */
+  GPIO_InitStruct.Pin = GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_8;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   LL_GPIO_Init(GPIOB, &GPIO_InitStruct);

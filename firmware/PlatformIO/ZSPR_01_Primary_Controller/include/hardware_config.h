@@ -1,6 +1,14 @@
 #pragma once
 
-#define RGB_MAX_PIXEL_CLOCK_HZ  (30000000UL)
+// ~60 fps at 480x480. 30 MHz outran the PSRAM -> bounce buffer refill and left
+// stale-line artifacts on screen.
+#define RGB_MAX_PIXEL_CLOCK_HZ  (16000000UL)
+
+// Lines per internal-RAM bounce buffer (the driver allocates two). Bigger gives the
+// refill ISR more slack before the DMA runs dry and repeats stale lines, at the cost of
+// internal RAM: 40 lines = 2 x 38.4 KB. Must divide the panel height evenly.
+// RGBPanel::begin() falls back to 20 if this much can't be allocated.
+#define RGB_BOUNCE_LINES        (40)
 
 #define BOARD_TFT_WIDTH      (480)
 #define BOARD_TFT_HEIGHT     (480)

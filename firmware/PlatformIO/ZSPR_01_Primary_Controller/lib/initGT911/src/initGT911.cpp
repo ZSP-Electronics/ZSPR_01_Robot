@@ -189,7 +189,7 @@ int8_t initGT911::readTouches()
   do
   {
     uint8_t flag = read(GT911_REG_COORD_ADDR);
-    if ((flag & 0x80) && ((flag & 0x0F) < GT911_MAX_CONTACTS))
+    if ((flag & 0x80) && ((flag & 0x0F) <= GT911_MAX_CONTACTS)) // 5 fingers is valid
     {
       write(GT911_REG_COORD_ADDR, 0);
       return flag & 0x0F;

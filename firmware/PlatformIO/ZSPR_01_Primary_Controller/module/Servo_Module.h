@@ -99,7 +99,7 @@ public:
                     return ERROR;
             }
 
-            int PingStatus, starting_index = 0;
+            int PingStatus;
             for (int i = 0; i < MAX_SERVO_NUM; i++)
             {
                 PingStatus = st.Ping(i);
@@ -109,32 +109,28 @@ public:
                     servoData[i].ServoType = st.readByte(i, 3);
                     servoData[i].posRead = st.ReadPos(i);
                     foundServos++;
-                    if (starting_index <= 0)
-                        starting_index = i;
                 }
                 delay(1);
             }
 
-#ifdef DEBUG
-            Serial.print("ID:   ");
-            for (int i = starting_index; i < starting_index + foundServos; i++)
-            {
-                Serial.printf("%2i ", servoData[i].servoID);
-            }
-            Serial.println();
-
-            Serial.print("Type: ");
-            for (int i = starting_index; i < starting_index + foundServos; i++)
-            {
-                Serial.printf("%2i ", servoData[i].ServoType);
-            }
-            Serial.println();
-
-            Serial.println("Active Servos: " + String(foundServos));
-#endif
             _initialized = true;
         }
         return SUCCESS;
+    }
+
+    // Lets the Bottango driver own the bus while it animates: feedback polling
+    // stops (every poll would queue ahead of an animation write on the bus
+    // lock), and writes stop waiting for the servos' replies (a missing servo
+    // would otherwise cost IOTimeOut per write and stall the animation).
+    // Both are lock-free / bus-lock-only so they are safe to call from any task
+    // while the servo task is mid-pass.
+    void pausePolling(bool pause) { _pollPaused = pause; }
+
+    void setAckWait(bool wait)
+    {
+        BusLock bus(Bus::Servo); // Level is only read inside bus transactions
+        sc.Level = wait ? 1 : 0;
+        st.Level = wait ? 1 : 0;
     }
 
     return_codes_t update() override
@@ -143,6 +139,9 @@ public:
         {
             if (!_initialized)
                 return ERROR;
+
+            if (_pollPaused)
+                return SUCCESS;
 
             for (int i = 0; i < foundServos; i++)
             {
@@ -201,12 +200,6 @@ public:
                 servoData[InputIDIndex].modeRead = sc.ReadMode(servoID);
             }
         }
-#ifdef DEBUG
-        else
-        {
-            Serial.println("Servo Type not found");
-        }
-#endif
     }
 
     void setMiddle(byte InputID)
@@ -320,6 +313,70 @@ public:
         }
 
         return error;
+    }
+
+    // Pings one bus ID. Returns the servo type (SCSERVOTYPE / STSERVOTYPE) of
+    // whatever answered, or -1 if nothing did. Leaves the tracked-servo table
+    // alone, so it is safe for scanning. A silent ID costs the library's
+    // IOTimeOut; call it from a task that can afford that.
+    int probe(uint8_t id)
+    {
+        if (!_initialized)
+            return -1;
+        if (st.Ping(id) == -1)
+            return -1;
+        return st.readByte(id, 3);
+    }
+
+    // Changes the bus ID of the servo answering at oldId to newId (0..MAX_SERVO_NUM-1,
+    // the range setup() scans) and keeps the polling table in step. Works on a
+    // servo that was not found at boot too.
+    // INVALID_PARAM: bad or identical ID.  ERROR: newId is taken, oldId doesn't
+    // answer, or the write didn't take.
+    return_codes_t changeId(uint8_t oldId, uint8_t newId)
+    {
+        if (!_initialized)
+            return ERROR;
+        if (oldId >= MAX_SERVO_NUM || newId >= MAX_SERVO_NUM || oldId == newId)
+            return INVALID_PARAM;
+
+        int type = probe(oldId);
+        if (type != SCSERVOTYPE && type != STSERVOTYPE)
+            return ERROR;
+        if (probe(newId) != -1) // two servos on one ID would both answer
+            return ERROR;
+
+        if (type == STSERVOTYPE)
+        {
+            st.unLockEprom(oldId);
+            st.writeByte(oldId, SMS_STS_ID, newId);
+            st.LockEprom(newId); // it answers to the new ID from here on
+        }
+        else
+        {
+            sc.unLockEprom(oldId);
+            sc.writeByte(oldId, SCSCL_ID, newId);
+            sc.LockEprom(newId);
+        }
+
+        // Confirm by asking the new ID rather than trusting the write's ack
+        // (a half-duplex bus can drop it).
+        if (probe(newId) == -1)
+            return ERROR;
+
+        DataLock lock(*this);
+        int idx = indexOf(oldId);
+        if (idx < 0 && foundServos < MAX_SERVO_NUM)
+        {
+            idx = foundServos++;
+            servoData[idx].Torque_List = true;
+        }
+        if (idx >= 0)
+        {
+            servoData[idx].servoID = newId;
+            servoData[idx].ServoType = type;
+        }
+        return SUCCESS;
     }
 
     void servoStop(byte servoID)
@@ -573,6 +630,7 @@ protected:
 private:
     int MAX_MIN_OFFSET = 30;
     int foundServos = 0;
+    volatile bool _pollPaused = false;
 
     // === SC Servo === TypeNum:5
     float ServoDigitalRange_SC = 1023.0;

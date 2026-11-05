@@ -36,51 +36,45 @@ void HAL_Robot_Module::init()
     display = new Display_Module(true);
     servo = new Servo_Module(true);
     cli = new CLI_Module(true, &Serial);
+    bottango = new Bottango_Module((bool)ENABLE_BOTTANGO, servo);
+    bottango->onStopped(&HAL_Robot_Module::s_bottangoStopped);
 
     hardware_setup();
 
     // All module setup() has finished, so from here on the modules are shared
     // between tasks and go through their locks.
-    BaseType_t created = xTaskCreatePinnedToCore(&HAL_Robot_Module::s_peripheralTask, "peripherals",
+    xTaskCreatePinnedToCore(&HAL_Robot_Module::s_peripheralTask, "peripherals",
                                                  PERIPHERAL_TASK_STACK_BYTES, this,
                                                  PERIPHERAL_TASK_PRIORITY, &_peripheralTask,
                                                  PERIPHERAL_TASK_CORE);
-    if (created != pdPASS)
-    {
-        Serial.println("[hal] failed to start peripheral task");
-    }
 
-    BaseType_t cli_created = xTaskCreatePinnedToCore(&HAL_Robot_Module::s_cliTask, "cli",
+    xTaskCreatePinnedToCore(&HAL_Robot_Module::s_cliTask, "cli",
                                                      CLI_TASK_STACK_BYTES, this,
                                                      CLI_TASK_PRIORITY, &_cliTask,
                                                      CLI_TASK_CORE);
-    if (cli_created != pdPASS)
-    {
-        Serial.println("[hal] failed to start CLI task");
-    }
 
     if (display->initialized())
     {
-        BaseType_t display_created = xTaskCreatePinnedToCore(&HAL_Robot_Module::s_displayTask, "display",
+        xTaskCreatePinnedToCore(&HAL_Robot_Module::s_displayTask, "display",
                                                              DISPLAY_TASK_STACK_BYTES, this,
                                                              DISPLAY_TASK_PRIORITY, &_displayTask,
                                                              DISPLAY_TASK_CORE);
-        if (display_created != pdPASS)
-        {
-            Serial.println("[hal] failed to start display task");
-        }
     }
 
     if (servo->enabled())
     {
-        BaseType_t servo_created = xTaskCreatePinnedToCore(&HAL_Robot_Module::s_servoTask, "servo",
+        xTaskCreatePinnedToCore(&HAL_Robot_Module::s_servoTask, "servo",
                                                            SERVO_TASK_STACK_BYTES, this,
                                                            SERVO_TASK_PRIORITY, &_servoTask,
                                                            SERVO_TASK_CORE);
-        if (servo_created != pdPASS)
-        {
-            Serial.println("[hal] failed to start servo task");
-        }
+    }
+
+    if (bottango->initialized())
+    {
+        xTaskCreatePinnedToCore(&HAL_Robot_Module::s_bottangoTask, "bottango",
+                                                              BOTTANGO_TASK_STACK_BYTES, this,
+                                                              BOTTANGO_TASK_PRIORITY, &_bottangoTask,
+                                                              BOTTANGO_TASK_CORE);
     }
 }
 
@@ -159,6 +153,10 @@ void HAL_Robot_Module::hardware_setup()
     SPI.begin(BOARD_SCLK, BOARD_MISO, BOARD_MOSI);
 
     servo->run_setup();
+    if (bottango->enabled())
+    {
+        bottango->run_setup(); // only marks the module ready; BottangoCore starts on set_mode()
+    }
 
     // Names are the test_periph flags; they must be registered before the
     // CLI's setup() so it can build the command.
@@ -169,6 +167,7 @@ void HAL_Robot_Module::hardware_setup()
     cli->addModule("battery", module(Peripheral::Battery));
     cli->addModule("touch", module(Peripheral::CapTouch));
     cli->addModule("servo", servo);
+    cli->addModule("gt911", display);
     cli->run_setup();
 
 #if ENABLE_BATTERY && ENABLE_CURRENT_SENSE
@@ -205,12 +204,10 @@ void HAL_Robot_Module::hardware_update()
     {
         esp_task_wdt_init(&wdt);
     }
-    if (esp_task_wdt_add(nullptr) != ESP_OK)
-    {
-        Serial.println("[hal] peripheral task could not join the task watchdog");
-    }
+    esp_task_wdt_add(nullptr);
 
     TickType_t lastWake = xTaskGetTickCount();
+    TickType_t lastBlink = lastWake;
     const TickType_t period = pdMS_TO_TICKS(PERIPHERAL_TASK_PERIOD_MS);
 
     while (1)
@@ -223,9 +220,13 @@ void HAL_Robot_Module::hardware_update()
             }
         }
 
-        // Toggle the LED to show the peripheral task is running every second
-        board_digitalWrite(BOARD_LED, !board_digitalRead(BOARD_LED));
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Delay for 1 second
+        // Toggle the LED once a second to show the peripheral task is running.
+        // (Time-based: a delay here would stretch every module's update to 1 s.)
+        if (xTaskGetTickCount() - lastBlink >= pdMS_TO_TICKS(1000))
+        {
+            lastBlink = xTaskGetTickCount();
+            board_digitalWrite(BOARD_LED, !board_digitalRead(BOARD_LED));
+        }
 
         esp_task_wdt_reset(); // one feed per full pass
 
@@ -254,10 +255,7 @@ void HAL_Robot_Module::s_cliTask(void *arg)
 // themselves.
 void HAL_Robot_Module::cli_update()
 {
-    if (esp_task_wdt_add(nullptr) != ESP_OK)
-    {
-        Serial.println("[hal] CLI task could not join the task watchdog");
-    }
+    esp_task_wdt_add(nullptr);
 
     TickType_t lastWake = xTaskGetTickCount();
     const TickType_t period = pdMS_TO_TICKS(CLI_TASK_PERIOD_MS);
@@ -286,10 +284,7 @@ void HAL_Robot_Module::s_displayTask(void *arg)
 // Touch polling only -- drawing is the UI task's job (src/app/UI_Task).
 void HAL_Robot_Module::display_update()
 {
-    if (esp_task_wdt_add(nullptr) != ESP_OK)
-    {
-        Serial.println("[hal] display task could not join the task watchdog");
-    }
+    esp_task_wdt_add(nullptr);
 
     TickType_t lastWake = xTaskGetTickCount();
     const TickType_t period = pdMS_TO_TICKS(DISPLAY_TASK_PERIOD_MS);
@@ -307,6 +302,79 @@ void HAL_Robot_Module::display_update()
     }
 }
 
+/************************/
+/*    BOTTANGO TASK     */
+/************************/
+bool HAL_Robot_Module::set_mode(ControlMode mode)
+{
+    if (mode == _mode)
+    {
+        return true;
+    }
+
+    if (mode == ControlMode::Bottango)
+    {
+        if (!bottango || !bottango->initialized())
+        {
+            return false;
+        }
+
+        // Mute the CLI first: from here its bytes would be Bottango's, and any
+        // CLI output would corrupt the app's command stream. Give the CLI task a
+        // couple of periods to see the flag and leave the port alone.
+        cli->pause(true);
+        vTaskDelay(pdMS_TO_TICKS(2 * CLI_TASK_PERIOD_MS));
+
+        _mode = ControlMode::Bottango;
+        bottango->requestActive(true);
+        return true;
+    }
+
+    // Back to the CLI. Bottango stops on its own task; wait for it so the CLI
+    // doesn't start reading while BottangoCore is still draining the port.
+    bottango->requestActive(false);
+    for (uint8_t i = 0; i < 100 && bottango->running(); i++)
+    {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        esp_task_wdt_reset(); // the caller (UI) is on the watchdog; this can take a moment
+    }
+    restore_cli_mode();
+    return !bottango->running();
+}
+
+void HAL_Robot_Module::restore_cli_mode()
+{
+    cli->pause(false);
+    _mode = ControlMode::Cli;
+}
+
+void HAL_Robot_Module::s_bottangoStopped()
+{
+    if (_instance)
+    {
+        _instance->restore_cli_mode();
+    }
+}
+
+void HAL_Robot_Module::s_bottangoTask(void *arg)
+{
+    static_cast<HAL_Robot_Module *>(arg)->bottango_update();
+}
+
+void HAL_Robot_Module::bottango_update()
+{
+    esp_task_wdt_add(nullptr);
+
+    while (1)
+    {
+        bottango->run_update();
+        esp_task_wdt_reset();
+
+        bool busy = bottango->running() || bottango->requested();
+        vTaskDelay(pdMS_TO_TICKS(busy ? BOTTANGO_TASK_ACTIVE_MS : BOTTANGO_TASK_IDLE_MS));
+    }
+}
+
 /*********************/
 /*    SERVO TASK     */
 /*********************/
@@ -320,10 +388,7 @@ void HAL_Robot_Module::s_servoTask(void *arg)
 // also feeds the watchdog between servos, since a silent one stalls its read.
 void HAL_Robot_Module::servo_update()
 {
-    if (esp_task_wdt_add(nullptr) != ESP_OK)
-    {
-        Serial.println("[hal] servo task could not join the task watchdog");
-    }
+    esp_task_wdt_add(nullptr);
 
     TickType_t lastWake = xTaskGetTickCount();
     const TickType_t period = pdMS_TO_TICKS(SERVO_TASK_PERIOD_MS);

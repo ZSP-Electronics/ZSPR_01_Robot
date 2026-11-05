@@ -12,17 +12,26 @@
 #include <initGT911.h>
 #endif
 
+// The GT911 reports up to 5 simultaneous contacts.
+constexpr uint8_t DISPLAY_MAX_TOUCH_POINTS = 5;
+
 // Property IDs for Display_Module::get/set. The touch props need
 // ENABLE_GT911_TOUCH; without it they return NOT_SUPPORTED.
+//
+// TouchX / TouchY / TouchId are per contact: pack the contact index (0 .. TouchCount-1)
+// into the high byte with Display_Module::addr(). Plain TouchX is contact 0. An index at
+// or past TouchCount returns INVALID_PARAM.
 enum class DisplayProp : uint16_t
 {
   Brightness, // get/set UINT  backlight, 0..Backlight_MAX (100)
   Width,      // get UINT  pixels
   Height,     // get UINT  pixels
   TouchReady, // get BOOL  GT911 found at setup()
-  Touched,    // get BOOL  finger currently down
-  TouchX,     // get UINT  last touch point
-  TouchY,     // get UINT
+  Touched,    // get BOOL  at least one finger down
+  TouchX,     // get UINT  contact n, pixels
+  TouchY,     // get UINT  contact n, pixels
+  TouchId,    // get UINT  contact n, the controller's track id (stable while the finger stays down)
+  TouchCount, // get UINT  fingers down, 0..DISPLAY_MAX_TOUCH_POINTS
 };
 
 // One touch change, posted to touchQueue() by update(). Move is only sent when
@@ -39,11 +48,15 @@ struct TouchEvent
   Type type;
   uint16_t x;
   uint16_t y;
+  uint8_t id; // which finger: the GT911 track id, the same from Down to Up
 };
 
 class Display_Module : public Universal_Module
 {
 public:
+  // Packs a property and a contact index into the 16-bit ID get/set take.
+  static constexpr uint16_t addr(DisplayProp prop, uint8_t index) { return (uint16_t)prop | ((uint16_t)index << 8); }
+
   // I2C only: the GT911 touch controller uses Wire. The panel's SPI is just the
   // bit-banged init in setup(), which runs before any task starts.
   Display_Module(bool enable) : Universal_Module(enable) { _buses = BUS_MASK_I2C; }
@@ -90,6 +103,9 @@ public:
         .b4_pin = BOARD_TFT_B4,
         .b5_pin = BOARD_TFT_B5,
 
+        .num_fbs = 2,
+        .bounce_lines = RGB_BOUNCE_LINES,
+
         // .hardware_spi = true,
     };
 
@@ -101,13 +117,11 @@ public:
     }
 
     if (!_touch_q)
-      _touch_q = xQueueCreate(8, sizeof(TouchEvent));
+      _touch_q = xQueueCreate(16, sizeof(TouchEvent)); // up to 5 fingers x a few events per poll
 
 #if ENABLE_GT911_TOUCH
     // Shares the already-initialised Wire bus; reset/IRQ pins sit on the IO expander.
     _touch_ok = touch.begin(BOARD_TOUCH_IRQ, BOARD_TOUCH_RST);
-    if (!_touch_ok)
-      Serial.println("[display] GT911 touch not found");
 #endif
 
     _initialized = true;
@@ -124,23 +138,35 @@ public:
     {
       _last_touch_poll = millis();
       // Polling mode: the IRQ line is on the IO expander and is not attached.
-      bool down = touch.touched(GT911_MODE_POLLING) > 0;
-      TouchPoint pt = _touch_pt;
-      if (down)
+      uint8_t n = touch.touched(GT911_MODE_POLLING);
+      if (n > DISPLAY_MAX_TOUCH_POINTS)
+        n = DISPLAY_MAX_TOUCH_POINTS;
+
+      TouchContact now[DISPLAY_MAX_TOUCH_POINTS];
+      for (uint8_t i = 0; i < n; i++)
       {
-        GTPoint p = touch.getPoint(0);
-        pt = {p.x, p.y};
+        GTPoint p = touch.getPoint(i);
+        now[i] = {p.trackId, p.x, p.y};
       }
 
-      if (down && !_touch_down)
-        postTouch(TouchEvent::Down, pt.x, pt.y);
-      else if (down && (pt.x != _touch_pt.x || pt.y != _touch_pt.y))
-        postTouch(TouchEvent::Move, pt.x, pt.y);
-      else if (!down && _touch_down)
-        postTouch(TouchEvent::Up, _touch_pt.x, _touch_pt.y); // where it lifted
+      // Match fingers by track id against the previous poll.
+      for (uint8_t i = 0; i < n; i++)
+      {
+        const TouchContact *before = findContact(_contacts, _touch_count, now[i].id);
+        if (!before)
+          postTouch(TouchEvent::Down, now[i]);
+        else if (before->x != now[i].x || before->y != now[i].y)
+          postTouch(TouchEvent::Move, now[i]);
+      }
+      for (uint8_t j = 0; j < _touch_count; j++)
+      {
+        if (!findContact(now, n, _contacts[j].id))
+          postTouch(TouchEvent::Up, _contacts[j]); // where it lifted
+      }
 
-      _touch_down = down;
-      _touch_pt = pt;
+      for (uint8_t i = 0; i < n; i++)
+        _contacts[i] = now[i];
+      _touch_count = n;
     }
 #endif
 
@@ -202,14 +228,35 @@ public:
     uint16_t y;
   };
 
-  // Latest touch state, refreshed by update(). Returns false when no finger is down.
+  // One finger, as tracked by the controller.
+  struct TouchContact
+  {
+    uint8_t id;
+    uint16_t x;
+    uint16_t y;
+  };
+
+  // Latest touch state, refreshed by update(). Returns false when no finger is down;
+  // otherwise the first contact.
   bool getTouch(TouchPoint &pt) const
   {
     DataLock lock(*this);
-    if (!_touch_ok || !_touch_down)
+    if (!_touch_ok || _touch_count == 0)
       return false;
-    pt = _touch_pt;
+    pt = {_contacts[0].x, _contacts[0].y};
     return true;
+  }
+
+  // Copies up to `max` of the fingers currently down into `out`; returns how many.
+  uint8_t getTouchPoints(TouchContact *out, uint8_t max) const
+  {
+    DataLock lock(*this);
+    if (!_touch_ok)
+      return 0;
+    uint8_t n = _touch_count < max ? _touch_count : max;
+    for (uint8_t i = 0; i < n; i++)
+      out[i] = _contacts[i];
+    return n;
   }
 
   bool touchReady() const
@@ -225,7 +272,8 @@ protected:
     if (!_initialized)
       return ERROR;
 
-    switch ((DisplayProp)id)
+    uint8_t index = (uint8_t)(id >> 8);
+    switch ((DisplayProp)(id & 0xFF))
     {
     case DisplayProp::Brightness:
       out = Value((uint32_t)panel.getBrightness());
@@ -241,14 +289,22 @@ protected:
       out = Value(_touch_ok);
       return SUCCESS;
     case DisplayProp::Touched:
-      out = Value(_touch_ok && _touch_down);
+      out = Value(_touch_ok && _touch_count > 0);
+      return SUCCESS;
+    case DisplayProp::TouchCount:
+      out = Value((uint32_t)(_touch_ok ? _touch_count : 0));
       return SUCCESS;
     case DisplayProp::TouchX:
-      out = Value((uint32_t)_touch_pt.x);
-      return SUCCESS;
     case DisplayProp::TouchY:
-      out = Value((uint32_t)_touch_pt.y);
+    case DisplayProp::TouchId:
+    {
+      if (!_touch_ok || index >= _touch_count)
+        return INVALID_PARAM;
+      const TouchContact &c = _contacts[index];
+      DisplayProp prop = (DisplayProp)(id & 0xFF);
+      out = Value((uint32_t)(prop == DisplayProp::TouchX ? c.x : prop == DisplayProp::TouchY ? c.y : c.id));
       return SUCCESS;
+    }
 #endif
     default:
       return NOT_SUPPORTED;
@@ -277,11 +333,21 @@ private:
 #if ENABLE_GT911_TOUCH
   // Never blocks: update() runs under the module lock. Move events are
   // droppable; Down/Up are not, so they push out the oldest entry instead.
-  void postTouch(TouchEvent::Type type, uint16_t x, uint16_t y)
+  static const TouchContact *findContact(const TouchContact *list, uint8_t n, uint8_t id)
+  {
+    for (uint8_t i = 0; i < n; i++)
+    {
+      if (list[i].id == id)
+        return &list[i];
+    }
+    return nullptr;
+  }
+
+  void postTouch(TouchEvent::Type type, const TouchContact &c)
   {
     if (!_touch_q)
       return;
-    TouchEvent ev = {type, x, y};
+    TouchEvent ev = {type, c.x, c.y, c.id};
     if (xQueueSend(_touch_q, &ev, 0) != pdTRUE && type != TouchEvent::Move)
     {
       TouchEvent dropped;
@@ -300,15 +366,11 @@ private:
     size_t n = (size_t)_width * _height;
     uint16_t *buf = (uint16_t *)heap_caps_malloc(n * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
     if (!buf)
-    {
-      Serial.println("[display] raw FB test: PSRAM alloc failed");
       return;
-    }
     const uint16_t colors[3] = {0xF800, 0x07E0, 0x001F}; // RGB565 red, green, blue
     for (size_t i = 0; i < n; i++)
       buf[i] = colors[(i / _width) * 3 / _height];
     panel.pushColors(0, 0, _width, _height, buf);
-    Serial.println("[display] raw FB test: red/green/blue bands pushed");
     delay(3000);
     free(buf);
   }
@@ -331,8 +393,8 @@ private:
 #if ENABLE_GT911_TOUCH
   initGT911 touch{&Wire};
   bool _touch_ok = false;
-  bool _touch_down = false;
-  TouchPoint _touch_pt = {0, 0};
+  TouchContact _contacts[DISPLAY_MAX_TOUCH_POINTS] = {}; // fingers down as of the last poll
+  uint8_t _touch_count = 0;
   uint32_t _last_touch_poll = 0;
   uint16_t _touch_poll_ms = 10;
 #endif

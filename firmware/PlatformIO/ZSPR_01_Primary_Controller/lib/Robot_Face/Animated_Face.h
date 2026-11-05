@@ -21,8 +21,13 @@
   #define PURPLE 0x780F
 #endif
 
+// Both are included unconditionally so PlatformIO's library finder sees them and pulls them in.
 #include <TFT_eSPI.h>
 #define TFT_ESPI_AVAILABLE 1
+
+// zGFX backend: the face draws into a zgfx::Canvas supplied per frame instead of owning a target.
+#include <zGFX.h>
+#define ZGFX_AVAILABLE 1
 
 #ifndef RGB565
   #define RGB565(r, g, b) ((uint16_t)((((r)&0xF8) << 8) | (((g)&0xFC) << 3) | ((b) >> 3)))
@@ -106,6 +111,23 @@ public:
 #if TFT_ESPI_AVAILABLE
   void begin(TFT_eSprite *sprite, bool dbug = false);
 #endif
+#if ZGFX_AVAILABLE
+  // zGFX backend. The face owns no drawing target: size it with begin(), then each UI frame
+  //   1. tick()       advance the animation (rate limited to the frame interval)
+  //   2. takeDirty()  which screen rects changed since the last call -> invalidate them
+  //   3. render()     paint the face into the canvas, from the widget's draw()
+  // render() clears the canvas' clip rect to the background colour first, so it can be called
+  // for just the dirty areas (the zgfx::Screen does this) as well as for a whole frame.
+  void begin(int width, int height, bool dbug = false);
+  bool tick();
+  // Fills out[] (room for at least MAX_DIRTY) with the rects that need repainting: where
+  // each part of the face was and where it is now. Returns the count; 0 if nothing moved.
+  static constexpr uint8_t MAX_DIRTY = 8;
+  uint8_t takeDirty(zgfx::Rect *out, uint8_t max = MAX_DIRTY);
+  void render(zgfx::Canvas &c, int originX = 0, int originY = 0);
+  uint16_t backgroundColor() const { return _debug ? _FakebgColor : _bgColor; }
+#endif
+
   //void setFramerate(uint8_t fps);
   void update();
   void setAnimiationSpeed(float value);
@@ -137,6 +159,8 @@ public:
   // Set automated eye blinking, minimal blink interval in full seconds and blink interval variation range in full seconds
   void setAutoblinker(bool active, int interval, int variation);
   void setAutoblinker(bool active);
+  // Restart the autoblink and idle-move timers, so each waits a fresh interval before firing.
+  void resetTimers();
 
   void setEyeWidth(int both);
   void setEyeWidth(int leftEye, int rightEye);
@@ -173,8 +197,28 @@ private:
   //  PRE-CALCULATIONS AND ACTUAL DRAWINGS
   //*********************************************************************************************
   void drawFace();
+  // step*(): advance the animation state. draw*(): paint the legacy (Arduino_GFX / TFT_eSPI) targets.
+  void stepFace();
+  void stepEyes();
+  void stepMouth();
   void drawEyes();
   void drawMouth();
+#if ZGFX_AVAILABLE
+  void renderEyes(zgfx::Canvas &c, int ox, int oy);
+  void renderMouth(zgfx::Canvas &c, int ox, int oy);
+  void renderCrosshairs(zgfx::Canvas &c, int ox, int oy);
+  zgfx::Rect eyeRect(int side) const;
+  zgfx::Rect mouthRect() const;
+  // Everything render() reads for one part of the face, to tell whether it changed.
+  static constexpr int EYE_SNAP = 24;
+  static constexpr int MOUTH_SNAP = 12;
+  void snapEye(int side, int *out) const;
+  void snapMouth(int *out) const;
+  int _snapEye[2][EYE_SNAP];
+  int _snapMouth[MOUTH_SNAP];
+  zgfx::Rect _snapRect[3];
+  bool _snapValid = false;
+#endif
   void debug();
   void close(bool left, bool right);
   void open(bool left, bool right);

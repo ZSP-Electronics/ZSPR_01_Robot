@@ -161,7 +161,7 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   panel_config.timings.vsync_pulse_width = 2;
   panel_config.timings.vsync_back_porch = 18;
   panel_config.timings.vsync_front_porch = 8;
-  panel_config.timings.flags.pclk_active_neg = 0;
+  panel_config.timings.flags.pclk_active_neg = 1;
   panel_config.data_width = 16; // RGB565 in parallel mode, thus 16bit in width
   panel_config.bits_per_pixel = 16;
   panel_config.num_fbs = (_disp->num_fbs > 1) ? 2 : 1;

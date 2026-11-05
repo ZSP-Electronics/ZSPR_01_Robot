@@ -3,7 +3,9 @@
 
 #include "LoopDrivenEffector.h"
 #include "Arduino.h"
-#ifdef ESP32
+#ifdef ZSPR_SERVO_SHIM
+#include "ZSPR_Servo_Shim.h" // ZSPR: Servo -> SC09 bus servo (lib/ZSPR_Bottango_Driver)
+#elif defined(ESP32)
 #include "lib/ESP32Servo/src/ESP32Servo.h"
 #else
 #include "Servo.h"

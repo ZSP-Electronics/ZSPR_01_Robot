@@ -149,7 +149,7 @@ public:
     {
         if (!_enabled)
             return NOT_SUPPORTED;
-        IoLock l(*this);
+        IoLock l(*this, _get_locks_buses);
         return onGet((uint16_t)id, out);
     }
     template <typename E>
@@ -211,6 +211,12 @@ protected:
     // register access).
     uint8_t _buses = BUS_MASK_NONE;
 
+    // get() takes the buses in _buses by default. A module whose onGet() only
+    // returns values cached by update() never touches the hardware, so it sets
+    // this false: readers (the UI) then wait only for the module's own mutex,
+    // not for whoever is using the bus.
+    bool _get_locks_buses = true;
+
 private:
     mutable SemaphoreHandle_t _mutex = nullptr; // mutable: const accessors lock too
 
@@ -221,19 +227,19 @@ private:
     class IoLock
     {
     public:
-        explicit IoLock(Universal_Module &m) : _m(m)
+        explicit IoLock(Universal_Module &m, bool takeBuses = true) : _m(m), _mask(takeBuses ? m._buses : (uint8_t)BUS_MASK_NONE)
         {
             _m.lock_data();
-            if (_m._buses & BUS_MASK_SPI)
+            if (_mask & BUS_MASK_SPI)
                 bus_take(Bus::SPI);
-            if (_m._buses & BUS_MASK_I2C)
+            if (_mask & BUS_MASK_I2C)
                 bus_take(Bus::I2C);
         }
         ~IoLock()
         {
-            if (_m._buses & BUS_MASK_I2C)
+            if (_mask & BUS_MASK_I2C)
                 bus_give(Bus::I2C);
-            if (_m._buses & BUS_MASK_SPI)
+            if (_mask & BUS_MASK_SPI)
                 bus_give(Bus::SPI);
             _m.unlock_data();
         }
@@ -242,5 +248,6 @@ private:
 
     private:
         Universal_Module &_m;
+        uint8_t _mask;
     };
 };

@@ -14,7 +14,7 @@ enum class TofProp : uint16_t
     Ready,         // get  BOOL   new ranging frame available
     Resolution,    // get/set UINT  16 (4x4) or 64 (8x8)
     Distances,     // get  BYTES  distance_mm[], resolution * VL53L8CX_NB_TARGET_PER_ZONE entries
-    SignalAmbient, // get/set BOOL  report signal + ambient in print_result
+    SignalAmbient, // get/set BOOL  report signal + ambient
 };
 
 enum class TofCmd : uint16_t
@@ -103,7 +103,6 @@ public:
     /****************/
     uint8_t is_data_ready(void)
     {
-        // Serial.printf("TOF is Data ready value: %d\r\n", NewDataReady);
         return NewDataReady;
     }
 
@@ -115,111 +114,6 @@ public:
     uint8_t get_resolution(void) const
     {
         return _res;
-    }
-
-    void print_result(VL53L8CX_ResultsData *Result)
-    {
-        int8_t i, j, k;
-        uint8_t l, zones_per_line;
-        uint8_t number_of_zones = _res;
-
-        zones_per_line = (number_of_zones == 16) ? 4 : 8;
-
-        // display_commands_banner();
-
-        Serial.print("Cell Format :\n\n");
-
-        for (l = 0; l < VL53L8CX_NB_TARGET_PER_ZONE; l++)
-        {
-            snprintf(report, sizeof(report), " \033[38;5;10m%20s\033[0m : %20s\n", "Distance [mm]", "Status");
-            Serial.print(report);
-
-            if (_EnableAmbient || _EnableSignal)
-            {
-                snprintf(report, sizeof(report), " %20s : %20s\n", "Signal [kcps/spad]", "Ambient [kcps/spad]");
-                Serial.print(report);
-            }
-        }
-
-        Serial.print("\n\n");
-
-        for (j = 0; j < number_of_zones; j += zones_per_line)
-        {
-            for (i = 0; i < zones_per_line; i++)
-            {
-                Serial.print(" -----------------");
-            }
-            Serial.print("\n");
-
-            for (i = 0; i < zones_per_line; i++)
-            {
-                Serial.print("|                 ");
-            }
-            Serial.print("|\n");
-
-            for (l = 0; l < VL53L8CX_NB_TARGET_PER_ZONE; l++)
-            {
-                // Print distance and status
-                for (k = (zones_per_line - 1); k >= 0; k--)
-                {
-                    if (Result->nb_target_detected[j + k] > 0)
-                    {
-                        snprintf(report, sizeof(report), "| \033[38;5;10m%5ld\033[0m  :  %5ld ",
-                                 (long)Result->distance_mm[(VL53L8CX_NB_TARGET_PER_ZONE * (j + k)) + l],
-                                 (long)Result->target_status[(VL53L8CX_NB_TARGET_PER_ZONE * (j + k)) + l]);
-                        Serial.print(report);
-                    }
-                    else
-                    {
-                        snprintf(report, sizeof(report), "| %5s  :  %5s ", "X", "X");
-                        Serial.print(report);
-                    }
-                }
-                Serial.print("|\n");
-
-                if (_EnableAmbient || _EnableSignal)
-                {
-                    // Print Signal and Ambient
-                    for (k = (zones_per_line - 1); k >= 0; k--)
-                    {
-                        if (Result->nb_target_detected[j + k] > 0)
-                        {
-                            if (_EnableSignal)
-                            {
-                                snprintf(report, sizeof(report), "| %5ld  :  ", (long)Result->signal_per_spad[(VL53L8CX_NB_TARGET_PER_ZONE * (j + k)) + l]);
-                                Serial.print(report);
-                            }
-                            else
-                            {
-                                snprintf(report, sizeof(report), "| %5s  :  ", "X");
-                                Serial.print(report);
-                            }
-                            if (_EnableAmbient)
-                            {
-                                snprintf(report, sizeof(report), "%5ld ", (long)Result->ambient_per_spad[j + k]);
-                                Serial.print(report);
-                            }
-                            else
-                            {
-                                snprintf(report, sizeof(report), "%5s ", "X");
-                                Serial.print(report);
-                            }
-                        }
-                        else
-                        {
-                            snprintf(report, sizeof(report), "| %5s  :  %5s ", "X", "X");
-                            Serial.print(report);
-                        }
-                    }
-                    Serial.print("|\n");
-                }
-            }
-        }
-        for (i = 0; i < zones_per_line; i++)
-        {
-            Serial.print(" -----------------");
-        }
-        Serial.print("\n");
     }
 
     void toggle_resolution(void)
@@ -321,7 +215,6 @@ private:
     bool _EnableAmbient = false;
     bool _EnableSignal = false;
     uint8_t _res = VL53L8CX_RESOLUTION_4X4;
-    char report[256];
     uint8_t _status;
     VL53L8CX_ResultsData _resultData;
 };

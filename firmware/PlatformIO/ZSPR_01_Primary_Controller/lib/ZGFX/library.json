@@ -1,0 +1,9 @@
+{
+  "name": "ZGFX",
+  "version": "0.1.0",
+  "description": "Small RGB565 drawing library with dirty-rect tracking and widgets. No dependencies.",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  }
+}

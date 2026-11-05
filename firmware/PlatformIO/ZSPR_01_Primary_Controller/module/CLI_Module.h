@@ -15,6 +15,7 @@
 #include "SDCard_Module.h"
 #include "Battery_Module.h"
 #include "Cap_Touch_Module.h"
+#include "Display_Module.h"
 
 // Typed serial command line. Runs in its own task and talks to every other
 // module only through their public get/set/command (each locks per module), so
@@ -74,6 +75,13 @@ public:
         if (!_enabled || !_initialized)
             return ERROR;
 
+        if (_paused)
+        {
+            _lineLen = 0; // drop any half-typed line
+            _skipLF = false;
+            return SUCCESS;
+        }
+
         while (_cliSerial->available())
         {
             uint8_t b = (uint8_t)_cliSerial->read();
@@ -118,6 +126,13 @@ public:
         }
         return SUCCESS;
     }
+
+    // Hands the serial port to someone else (the Bottango driver). While paused
+    // the CLI neither reads nor writes it, and a running test_periph stream
+    // ends without printing. Lock-free on purpose: it is called from other
+    // tasks while update() may be inside a long stream holding the module lock.
+    void pause(bool p) { _paused = p; }
+    bool paused() const { return _paused; }
 
 protected:
     void flushSerial()
@@ -230,6 +245,7 @@ protected:
             {"tof", &CLI_Module::reportTof, 100},
             {"imu", &CLI_Module::reportImu, 150},
             {"touch", &CLI_Module::reportCapTouch, 100},
+            {"gt911", &CLI_Module::reportGt911, 20}, // display's touch controller; fast so taps aren't missed
             {"sdcard", &CLI_Module::reportSd, 500},
             {"battery", &CLI_Module::reportBattery, 250},
         };
@@ -285,12 +301,17 @@ protected:
 
         _cliSerial->printf("> [%s] streaming, send any byte to stop\r\n", e.name);
         flushSerial();
-        while (!_cliSerial->available())
+        _streaming = true;
+        _gtSeen = false;
+        while (!_paused && !_cliSerial->available())
         {
             r->fn(*this, *e.module);
             esp_task_wdt_reset(); // streaming blocks inside the CLI task; keep it fed
             vTaskDelay(pdMS_TO_TICKS(r->periodMs));
         }
+        _streaming = false;
+        if (_paused)
+            return; // the port now belongs to someone else: don't read or print
         drainSerialAndStop();
     }
 
@@ -477,6 +498,81 @@ protected:
         c._cliSerial->printf("> [touch] keys=0x%02lX%s\r\n", (unsigned long)mask, mask ? " (touched)" : "");
     }
 
+    // GT911 on the display, up to 5 fingers. One line per report; each contact
+    // after the count is its own tab-separated field:
+    //   > [gt911] touches=2<TAB>#0 id=3 x=120 y=300<TAB>#1 id=5 x=40 y=90
+    // One-shot (self-check): current state. Streaming: prints only when the set
+    // of contacts or any position changes. Reads the display's cached state via
+    // get(); the UI task owns the touch event queue, so this doesn't steal events.
+    static void reportGt911(CLI_Module &c, Universal_Module &m)
+    {
+        Value v;
+        if (m.get(DisplayProp::TouchReady, v) != SUCCESS)
+        {
+            c._cliSerial->println("> [gt911] unavailable (display not initialised)");
+            return;
+        }
+        if (!v.asBool())
+        {
+            c._cliSerial->println("> [gt911] controller not found (check I2C address, reset and IRQ lines)");
+            return;
+        }
+
+        int32_t n = 0;
+        readInt(m, DisplayProp::TouchCount, n);
+        if (n < 0)
+            n = 0;
+        if (n > (int32_t)DISPLAY_MAX_TOUCH_POINTS)
+            n = DISPLAY_MAX_TOUCH_POINTS;
+
+        GtContact now[DISPLAY_MAX_TOUCH_POINTS];
+        int32_t got = 0;
+        for (; got < n; got++)
+        {
+            // A finger can lift between the count and this read; keep what we got.
+            if (!readInt(m, Display_Module::addr(DisplayProp::TouchId, got), now[got].id) ||
+                !readInt(m, Display_Module::addr(DisplayProp::TouchX, got), now[got].x) ||
+                !readInt(m, Display_Module::addr(DisplayProp::TouchY, got), now[got].y))
+                break;
+        }
+        n = got;
+
+        if (c._streaming)
+        {
+            bool same = c._gtSeen && n == c._gtN;
+            for (int32_t i = 0; same && i < n; i++)
+            {
+                same = now[i].id == c._gtPts[i].id && now[i].x == c._gtPts[i].x && now[i].y == c._gtPts[i].y;
+            }
+            if (same)
+                return;
+
+            bool released = c._gtSeen && n == 0 && c._gtN > 0;
+            c._gtSeen = true;
+            c._gtN = (uint8_t)n;
+            for (int32_t i = 0; i < n; i++)
+                c._gtPts[i] = now[i];
+
+            if (n == 0)
+            {
+                c._cliSerial->println(released ? "> [gt911] touches=0 (released)" : "> [gt911] ready, touch the screen");
+                return;
+            }
+        }
+        else if (n == 0)
+        {
+            c._cliSerial->println("> [gt911] ready, no touch");
+            return;
+        }
+
+        c._cliSerial->printf("> [gt911] touches=%ld", (long)n);
+        for (int32_t i = 0; i < n; i++)
+        {
+            c._cliSerial->printf("\t#%ld id=%ld x=%ld y=%ld", (long)i, (long)now[i].id, (long)now[i].x, (long)now[i].y);
+        }
+        c._cliSerial->print("\r\n");
+    }
+
     static void reportSd(CLI_Module &c, Universal_Module &m)
     {
         Value v;
@@ -550,6 +646,17 @@ private:
     char _line[CLI_LINE_LEN];
     size_t _lineLen = 0;
     bool _skipLF = false;
+    volatile bool _paused = false;
+
+    // reportGt911 state: only meaningful while a stream is running
+    struct GtContact
+    {
+        int32_t id = 0, x = 0, y = 0;
+    };
+    bool _streaming = false;
+    bool _gtSeen = false;
+    uint8_t _gtN = 0;
+    GtContact _gtPts[DISPLAY_MAX_TOUCH_POINTS];
     uint32_t _lastVoltReqMs = 0;
 
     SimpleCLI cli;

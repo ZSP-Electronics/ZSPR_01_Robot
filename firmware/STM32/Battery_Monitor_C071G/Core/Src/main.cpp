@@ -184,9 +184,11 @@ int main(void)
   Serial.println("Hello World!");
   #endif
 
+  #ifdef ENABLE_OLED
   display.SSD1306_begin(BOARD_I2C1, SSD1306_I2C_ADDR);
   display.SSD1306_setFont(&Dialog_bold_10);
   display.SSD1306_setFontSize(1);
+  #endif
 
   if(charger.begin(BOARD_I2C1)){
     #ifdef DEBUG
@@ -221,7 +223,9 @@ int main(void)
     }
   }
 
+  #ifdef ENABLE_OLED
   drawPrimaryScreen();
+  #endif
 
   // getFirstFiveRegs();
   // printFirstFiveRegs();
@@ -259,15 +263,17 @@ int main(void)
       checkInputCurrentFaults();
       readBatteryStatus();
       // printBatteryStatus();
+      #ifdef ENABLE_OLED
       drawPrimaryScreen();
+      #endif
     }
 
     /* USER CODE END WHILE */
     // Serial.println("Hello World!");
     // printf("Hello World!\r\n");
     // HAL_UART_Receive(&huart1, rxData, 5, HAL_MAX_DELAY);
-    // HAL_GPIO_TogglePin(user_led);
-    // HAL_Delay(100);
+    HAL_GPIO_TogglePin(user_led);
+    HAL_Delay(100);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -351,7 +357,7 @@ void update_button_states(void){
   bool left_but_temp = !Board_GPIO_ReadPin(button_left);
   bool middle_but_temp = !Board_GPIO_ReadPin(button_middle);
   bool right_but_temp = !Board_GPIO_ReadPin(button_right);
-  battery_pwr_good_state = Board_GPIO_ReadPin(pwr_button_read);
+  // battery_pwr_good_state = Board_GPIO_ReadPin(pwr_button_read);
 
   //Left Debounce
   if(left_but_temp)
@@ -887,6 +893,7 @@ void readStatFields(){
 /******************************************************/
 /******************* OLED SCREENS *********************/
 /******************************************************/
+#ifdef ENABLE_OLED
 void drawPrimaryScreen(){
   // char title[] = "Battery Monitor";
   char percentageStr[5];
@@ -962,5 +969,5 @@ void drawPrimaryScreen(){
 
   display.SSD1306_UpdateScreen();
 }
-
+#endif
 

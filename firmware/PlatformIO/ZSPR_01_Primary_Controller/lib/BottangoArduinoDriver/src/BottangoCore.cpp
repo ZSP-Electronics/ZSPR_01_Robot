@@ -460,7 +460,9 @@ namespace BottangoCore
             }
             else
             {
+#ifndef ZSPR_NO_REBOOT_ON_STOP // ZSPR: leave Bottango mode instead of resetting the robot
                 BasicCommands::reboot(false);
+#endif
             }
         }
     }

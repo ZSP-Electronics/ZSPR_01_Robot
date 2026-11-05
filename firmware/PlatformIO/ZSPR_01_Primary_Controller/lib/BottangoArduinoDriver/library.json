@@ -1,0 +1,16 @@
+{
+  "name": "BottangoArduinoDriver",
+  "version": "0.8.0",
+  "description": "Bottango Arduino driver (BSD-3-Clause, EvanBottango/Bottango, API v9) with ZSPR patches, see ZSPR_PATCHES.md.",
+  "build": {
+    "srcDir": ".",
+    "includeDir": ".",
+    "srcFilter": [
+      "+<*.cpp>",
+      "+<src/>",
+      "-<*.ino>",
+      "-<BottangoArduinoCallbacks.cpp>",
+      "-<src/lib/ESP32Servo/>"
+    ]
+  }
+}

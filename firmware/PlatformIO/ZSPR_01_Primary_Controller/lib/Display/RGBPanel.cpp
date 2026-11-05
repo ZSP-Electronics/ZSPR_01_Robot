@@ -80,7 +80,6 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   esp_err_t err = spi_bus_initialize(SPI2_HOST, &bus_config, SPI_DMA_CH_AUTO);
   if (err != ESP_OK)
   {
-    Serial.printf("LCD SPI bus init failed: %s\\n", esp_err_to_name(err));
     return false;
   }
 
@@ -95,7 +94,6 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   err = spi_bus_add_device(SPI2_HOST, &device_config, &_display_spi);
   if (err != ESP_OK)
   {
-    Serial.printf("LCD SPI device init failed: %s\\n", esp_err_to_name(err));
     spi_bus_free(SPI2_HOST);
     return false;
   }
@@ -194,7 +192,7 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   panel_config.timings.vsync_pulse_width = 2;
   panel_config.timings.vsync_back_porch = 18;
   panel_config.timings.vsync_front_porch = 8;
-  panel_config.timings.flags.pclk_active_neg = 0;
+  panel_config.timings.flags.pclk_active_neg = 1; // ST7701 samples on the falling edge (matches the T-RGB reference)
   panel_config.data_width = 16; // RGB565 in parallel mode, thus 16bit in width
   panel_config.bits_per_pixel = 16;
   panel_config.num_fbs = (_disp->num_fbs > 1) ? 2 : 1;
@@ -226,15 +224,19 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
   }
 
   err = esp_lcd_new_rgb_panel(&panel_config, &_panelDrv);
+  if (err != ESP_OK && _disp->bounce_lines > 20 && (_disp->height % 20) == 0)
+  {
+    // Not enough internal RAM for the bigger bounce buffers: fall back to the old size.
+    panel_config.bounce_buffer_size_px = (size_t)20 * _disp->width;
+    err = esp_lcd_new_rgb_panel(&panel_config, &_panelDrv);
+  }
   if (err != ESP_OK && panel_config.num_fbs > 1)
   {
-    Serial.printf("RGB panel with %d frame buffers failed (%s), retrying with 1\n", panel_config.num_fbs, esp_err_to_name(err));
     panel_config.num_fbs = 1;
     err = esp_lcd_new_rgb_panel(&panel_config, &_panelDrv);
   }
   if (err != ESP_OK)
   {
-    Serial.printf("RGB panel create failed: %s\n", esp_err_to_name(err));
     _panelDrv = NULL;
     return false;
   }
@@ -255,7 +257,6 @@ bool RGBPanel::begin(disp_lcd_panel_config_t *disp, RGBPanel_Color_Order order, 
     ESP_ERROR_CHECK(esp_lcd_rgb_panel_get_frame_buffer(_panelDrv, 1, &fb0));
   _fbs[0] = (uint16_t *)fb0;
   _fbs[1] = (uint16_t *)fb1;
-  Serial.printf("RGB panel up: %ux%u, %u frame buffer(s), pclk %u Hz\n", _disp->width, _disp->height, _numFbs, (unsigned)_disp->pclk_freq);
 
     // releaseBus();
 

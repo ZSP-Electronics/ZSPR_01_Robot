@@ -15,7 +15,7 @@
 #include "Display_Module.h"
 #include "CLI_Module.h"
 
-// #include "Bottango_Module.h"
+#include "Bottango_Module.h"
 #include "Current_Module.h"
 #include "IMU_Module.h"
 #include "TOF_Module.h"
@@ -66,6 +66,24 @@ enum class Peripheral : uint8_t
 #define SERVO_TASK_PERIOD_MS 20
 #define SERVO_TASK_CORE 1
 
+// Bottango task: runs BottangoCore's loop while Bottango mode is active, and
+// idles otherwise. BottangoCore is not thread-safe, so every call into it is
+// made from this task. Active: 1 ms loop (animation timing); idle: slow poll
+// for a start request.
+#define BOTTANGO_TASK_STACK_BYTES 8192
+#define BOTTANGO_TASK_PRIORITY 2
+#define BOTTANGO_TASK_ACTIVE_MS 1
+#define BOTTANGO_TASK_IDLE_MS 50
+#define BOTTANGO_TASK_CORE 1
+
+// Who owns the USB serial port. The CLI and the Bottango driver both read and
+// write it, so exactly one of them is live at a time.
+enum class ControlMode : uint8_t
+{
+    Cli,
+    Bottango,
+};
+
 // Display task: runs Display_Module::update(), which polls the GT911 and posts
 // TouchEvents to display->touchQueue(). Separate from the UI task so touch
 // latency doesn't depend on how long a frame takes to draw.
@@ -82,6 +100,16 @@ public:
     Display_Module *display;
     Servo_Module *servo;
     CLI_Module *cli;
+    Bottango_Module *bottango;
+
+    // Switches who owns the serial port. Call from one task at a time (the UI).
+    //   Bottango: mutes the CLI, then asks the Bottango task to start -- the
+    //             servo bus is handed over by the driver (polling paused).
+    //   Cli:      asks Bottango to stop, waits briefly for it, gives the port back.
+    // Also ends by itself when the Bottango app sends "stop" or never connects.
+    // Returns false if the requested mode can't be entered (Bottango disabled).
+    bool set_mode(ControlMode mode);
+    ControlMode mode() const { return _mode; }
 
     // The peripheral-task modules, for code outside the HAL (UI, app logic).
     // Talk to them only through get/set/command -- never call update().
@@ -114,6 +142,19 @@ private:
     TaskHandle_t _peripheralTask = nullptr;
     TaskHandle_t _cliTask = nullptr;
     TaskHandle_t _servoTask = nullptr;
+    TaskHandle_t _bottangoTask = nullptr;
+
+    volatile ControlMode _mode = ControlMode::Cli;
+
+    // Bottango task loop: never returns. Started by init().
+    void bottango_update();
+    static void s_bottangoTask(void *arg);
+
+    // Gives the serial port back to the CLI. Lock-free and idempotent: also
+    // called from the Bottango task (via the module's onStopped hook) when
+    // Bottango mode ends by itself.
+    void restore_cli_mode();
+    static void s_bottangoStopped();
     TaskHandle_t _displayTask = nullptr;
 
     // Display task loop: never returns. Started by init().

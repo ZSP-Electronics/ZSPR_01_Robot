@@ -15,7 +15,7 @@
 #define ENABLE_IMU_COMPASS    1
 #define ENABLE_SD             0
 #define ENABLE_BATTERY        1 // Serial2 link to the battery controller board: protocol defined, not yet validated against real hardware
-#define ENABLE_BOTTANGO       0 // Bottango app (USB) + offline animations driving the SC servos; requires ENABLE_SERVO
+#define ENABLE_BOTTANGO       1 // Bottango app (USB) driving the SC servos; entered/left with HAL_Robot_Module::set_mode()
 
 #define TOTAL_PERIPHERIALS     6 //Peripheral count to be ran in single task. Does not include Bottango, CLI, Servo, Display, or GT911 Touch. These are handled in their own tasks.
 
@@ -37,9 +37,6 @@
 #define DEV                     0
 #define PROD                    0
 
-#if ENABLE_BOTTANGO && !ENABLE_SERVO
-#error "ENABLE_BOTTANGO requires ENABLE_SERVO"
-#endif
 
 #if (TEST + DEV + PROD) != 1
 #error "Exactly one of TEST, DEV, PROD must be set to 1 in peripheral_config.h"

@@ -31,6 +31,25 @@ void Animated_Face::begin(TFT_eSprite *sprite, bool dbug) {
 }
 #endif
 
+#if ZGFX_AVAILABLE
+void Animated_Face::begin(int width, int height, bool dbug) {
+  _debug = dbug;
+  _screenWidth = _prevScreenWidth = width;
+  _screenHeight = _prevScreenHeight = height;
+  _snapValid = false;
+  init();
+}
+
+bool Animated_Face::tick() {
+  if (millis() - fpsTimer < (unsigned long)_frameInterval)
+    return false;
+  stepFace();
+  fpsTimer = millis();
+  setup_complete = true;
+  return true;
+}
+#endif
+
 void Animated_Face::init() {
 
   // Init Display
@@ -173,6 +192,12 @@ void Animated_Face::setAutoblinker(bool active, int interval, int variation) {
 }
 void Animated_Face::setAutoblinker(bool active) {
   autoblinker = active;
+}
+
+void Animated_Face::resetTimers() {
+  const unsigned long now = millis();
+  blinktimer = now + (blinkInterval * 1000) + (random(blinkIntervalVariation) * 1000);
+  idleAnimationTimer = now + (idleInterval * 1000) + (random(idleIntervalVariation) * 1000);
 }
 
 void Animated_Face::setEyeWidth(int both) {
@@ -328,6 +353,12 @@ void Animated_Face::setPositionDistance(unsigned int distance) {
 }
 
 void Animated_Face::setPosition(cardinal_direction direction) {
+  // A blink in progress has NEXT.height pinned to 1. Moving the face must not overwrite it,
+  // or the eye springs back open mid-blink (a visible flicker whenever the idle move and the
+  // autoblinker overlap).
+  const bool leftClosing = _eyes[LEFT].blinking && _eyes[LEFT_NEXT].height <= 1;
+  const bool rightClosing = _eyes[RIGHT].blinking && _eyes[RIGHT_NEXT].height <= 1;
+
   switch (direction) {
     case N:
       _faceCenter_xNext = (_screenWidth / 2);
@@ -402,6 +433,9 @@ void Animated_Face::setPosition(cardinal_direction direction) {
       _eyes[RIGHT_NEXT].width = _eyes[RIGHT_DEFAULT].width;
       break;
   }
+
+  if (leftClosing) _eyes[LEFT_NEXT].height = 1;
+  if (rightClosing) _eyes[RIGHT_NEXT].height = 1;
 }
 
 //*********************************************************************************************
@@ -440,27 +474,9 @@ void Animated_Face::setMouthPadding(int padding) {
 //*********************************************************************************************
 //  PRE-CALCULATIONS AND ACTUAL DRAWINGS
 //*********************************************************************************************
-void Animated_Face::drawFace() {
-#if ARDUINO_GFX_AVAILABLE
-  if (canvasGfx != NULL) {
-    if (_debug)
-      canvasGfx->fillScreen(_FakebgColor);  // start with a blank screen
-    else
-      canvasGfx->fillScreen(_bgColor);  // start with a blank screen
-  }
-#endif
-
-#if TFT_ESPI_AVAILABLE
-  if (_spr != NULL) {
-    if (_debug)
-      _spr->fillSprite(_FakebgColor);  // start with a blank screen
-    else
-      _spr->fillSprite(_bgColor);
-    //_spr->fillSprite(RED);
-  }
-#endif
-
-
+// Advances the animation one frame: idle wandering, face-centre easing, then the mouth and eyes.
+// No drawing: the legacy drawFace() and the zGFX tick() both call it.
+void Animated_Face::stepFace() {
   if (idle) {
     if (millis() >= idleAnimationTimer) {
       unsigned int move_from_center = random(3);
@@ -482,6 +498,34 @@ void Animated_Face::drawFace() {
 
   _faceCenter_x = (_faceCenter_x * _cur_value) + ((_faceCenter_xNext + _horizontal_padding) * _nex_value);
   _faceCenter_y = (_faceCenter_y * _cur_value) + ((_faceCenter_yNext + _vertical_padding) * _nex_value);
+
+  if (mouthActive)
+    stepMouth();
+  stepEyes();
+}
+
+void Animated_Face::drawFace() {
+#if ARDUINO_GFX_AVAILABLE
+  if (canvasGfx != NULL) {
+    if (_debug)
+      canvasGfx->fillScreen(_FakebgColor);  // start with a blank screen
+    else
+      canvasGfx->fillScreen(_bgColor);  // start with a blank screen
+  }
+#endif
+
+#if TFT_ESPI_AVAILABLE
+  if (_spr != NULL) {
+    if (_debug)
+      _spr->fillSprite(_FakebgColor);  // start with a blank screen
+    else
+      _spr->fillSprite(_bgColor);
+    //_spr->fillSprite(RED);
+  }
+#endif
+
+
+  stepFace();
 
   if (mouthActive)
     drawMouth();
@@ -559,7 +603,7 @@ void Animated_Face::setAnimiationSpeed(float value) {
 
 
 
-void Animated_Face::drawEyes() {
+void Animated_Face::stepEyes() {
 
   // Left eye width
   _eyes[LEFT].width = (_eyes[LEFT].width + _eyes[LEFT_NEXT].width) / 2;
@@ -641,9 +685,12 @@ void Animated_Face::drawEyes() {
     }
   }
 
-  /*************************/
-  /* DRAW EYES and lidsS */
-  /*************************/
+}
+
+/*************************/
+/* DRAW EYES and lids    */
+/*************************/
+void Animated_Face::drawEyes() {
 #if ARDUINO_GFX_AVAILABLE
   if (canvasGfx != NULL) {
     // Draw basic eye shapes
@@ -737,7 +784,7 @@ void Animated_Face::setMouthCrosshair(bool active) {
   mouthCrosshair = active;
 }
 
-void Animated_Face::drawMouth() {
+void Animated_Face::stepMouth() {
 
   mouthLx = _faceCenter_x;
   mouthLy = _faceCenter_y + mouthPaddingDefault;
@@ -780,7 +827,9 @@ void Animated_Face::drawMouth() {
   surprisedPadding = (surprisedPadding * _cur_value) + (surprisedPaddingNext * _nex_value);
   topMouthLip = (topMouthLip * _cur_value) + (topMouthLipNext * _nex_value);
   bottomMouthLip = (bottomMouthLip * _cur_value) + (bottomMouthLipNext * _nex_value);
+}
 
+void Animated_Face::drawMouth() {
 #if ARDUINO_GFX_AVAILABLE
   if (canvasGfx != NULL) {
     // Default mouth
@@ -843,3 +892,185 @@ void Animated_Face::fillRoundRect(int32_t x, int32_t y, int32_t w, int32_t h, in
     _spr->fillCircleHelper(x + r, y + r, r, 2, w - r - r - 1, color);
   }
 }
+
+//*********************************************************************************************
+//  zGFX BACKEND
+//
+//  Same shapes as the TFT_eSPI path (eyes first, then the lids and mouth lips painted in the
+//  background colour on top), drawn into whatever canvas and clip the zgfx::Screen hands over.
+//  takeDirty() reports what moved so only those rects are repainted, not the whole panel.
+//*********************************************************************************************
+#if ZGFX_AVAILABLE
+#include <string.h>
+
+static inline zgfx::Rect zr(int x, int y, int w, int h) {
+  return zgfx::Rect{(int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h};
+}
+
+void Animated_Face::render(zgfx::Canvas &c, int ox, int oy) {
+  c.clear(backgroundColor());  // the clip rect: the whole canvas, or just the dirty area
+  if (mouthActive)
+    renderMouth(c, ox, oy);
+  renderEyes(c, ox, oy);
+  renderCrosshairs(c, ox, oy);
+}
+
+void Animated_Face::renderEyes(zgfx::Canvas &c, int ox, int oy) {
+  const int sides = cyclops ? 1 : 2;
+  const uint16_t bg = backgroundColor();
+
+  // Basic eye shapes
+  for (int s = 0; s < sides; s++) {
+    const eyes &e = _eyes[s];
+    c.fillRoundRect(zr(ox + e.cX, oy + e.cY - surprisedEyePadding, e.width, e.height + (2 * surprisedEyePadding)), e.radius, e.color);
+  }
+
+  // Lids: a rounded rect cut from the top/bottom plus a triangle for the slanted lids
+  if (surprise || cyclops)
+    return;
+  for (int s = 0; s < 2; s++) {
+    const eyes &e = _eyes[s];
+    if (e.blinking)
+      continue;
+    const int x = ox + e.cX;
+    const int y = oy + e.cY;
+
+    // TOP
+    c.fillRoundRect(zr(x - 1, y - 1, e.width + 2, e.lids[TOP].height), e.lids[TOP].radius, bg);
+    c.fillTriangle(x, y + e.lids[TOP].y1 - 1, x + e.width, y + e.lids[TOP].y2 - 1, x + e.lids[TOP].x3, y + e.lids[TOP].y3 - 1, bg);
+
+    // BOTTOM
+    c.fillRoundRect(zr(x - 1, y + e.height - e.lids[BOTTOM].height, e.width + 2, e.lids[BOTTOM].height + 2), e.lids[BOTTOM].radius, bg);
+    c.fillTriangle(x, y + e.lids[BOTTOM].y1 - 1, x + e.width, y + e.lids[BOTTOM].y2 - 1, x + e.lids[BOTTOM].x3, y + e.lids[BOTTOM].y3 - 1, bg);
+  }
+}
+
+void Animated_Face::renderMouth(zgfx::Canvas &c, int ox, int oy) {
+  const uint16_t bg = backgroundColor();
+  const int x = ox + mouthLx - (mouthWidth / 2);
+  const int y = oy + mouthLy;
+
+  // Default mouth
+  c.fillRoundRect(zr(x, y - surprisedPaddingNext, mouthWidth, mouthHeight + (2 * surprisedPaddingNext)), mouthRadius, _mouthColor);
+  // Top expression
+  c.fillRoundRect(zr(x - 1, y, mouthWidth + 2, topMouthLip), topMouthRadius, bg);
+  // Bottom expression
+  c.fillRoundRect(zr(x - 1, y + (mouthHeight / 5), mouthWidth + 2, bottomMouthLip), topMouthRadius, bg);
+}
+
+void Animated_Face::renderCrosshairs(zgfx::Canvas &c, int ox, int oy) {
+  if (cross_hair) {
+    const int x = ox + (int)_faceCenter_x, y = oy + (int)_faceCenter_y;
+    c.drawLine(x - 5, y, x + 5, y, RGB565(242, 242, 33));
+    c.drawLine(x, y - 5, x, y + 5, RGB565(242, 242, 33));
+  }
+  if (mouthCrosshair && mouthActive) {
+    const int x = ox + mouthLx, y = oy + mouthLy;
+    c.drawLine(x - 5, y, x + 5, y, RGB565(255, 196, 0));
+    c.drawLine(x, y - 5, x, y + 5, RGB565(255, 196, 0));
+  }
+}
+
+// Bounding boxes of what render() paints for each part, with a margin for the 1-2 px the
+// lids overshoot by.
+zgfx::Rect Animated_Face::eyeRect(int side) const {
+  if (side == RIGHT && cyclops)
+    return zr(0, 0, 0, 0);
+  const eyes &e = _eyes[side];
+  return zr(e.cX - 2, e.cY - surprisedEyePadding - 2, e.width + 4, e.height + (2 * surprisedEyePadding) + 4);
+}
+
+zgfx::Rect Animated_Face::mouthRect() const {
+  if (!mouthActive)
+    return zr(0, 0, 0, 0);
+  return zr(mouthLx - (mouthWidth / 2) - 2, mouthLy - surprisedPaddingNext - 2, mouthWidth + 4, mouthHeight + (2 * surprisedPaddingNext) + 4);
+}
+
+void Animated_Face::snapEye(int side, int *o) const {
+  memset(o, 0, EYE_SNAP * sizeof(int));
+  const eyes &e = _eyes[side];
+  o[0] = e.cX;
+  o[1] = e.cY;
+  o[2] = e.width;
+  o[3] = e.height;
+  o[4] = e.radius;
+  o[5] = e.color;
+  o[6] = e.blinking;
+  o[7] = surprise;
+  o[8] = surprisedEyePadding;
+  o[9] = cyclops;
+  o[10] = backgroundColor();
+  for (int l = 0; l < 2; l++) {
+    int *p = o + 11 + l * 6;
+    p[0] = e.lids[l].y1;
+    p[1] = e.lids[l].y2;
+    p[2] = e.lids[l].x3;
+    p[3] = e.lids[l].y3;
+    p[4] = e.lids[l].height;
+    p[5] = e.lids[l].radius;
+  }
+}
+
+void Animated_Face::snapMouth(int *o) const {
+  memset(o, 0, MOUTH_SNAP * sizeof(int));
+  o[0] = mouthActive;
+  o[1] = mouthLx;
+  o[2] = mouthLy;
+  o[3] = mouthWidth;
+  o[4] = mouthHeight;
+  o[5] = mouthRadius;
+  o[6] = topMouthLip;
+  o[7] = bottomMouthLip;
+  o[8] = topMouthRadius;
+  o[9] = surprisedPaddingNext;
+  o[10] = _mouthColor;
+  o[11] = backgroundColor();
+}
+
+uint8_t Animated_Face::takeDirty(zgfx::Rect *out, uint8_t max) {
+  uint8_t n = 0;
+  auto add = [&](const zgfx::Rect &r) {
+    if (!r.empty() && n < max)
+      out[n++] = r;
+  };
+  const zgfx::Rect full = zr(0, 0, _screenWidth, _screenHeight);
+
+  // Debug overlays aren't worth tracking: repaint everything while one is on.
+  if (cross_hair || mouthCrosshair) {
+    _snapValid = false;
+    add(full);
+    return n;
+  }
+
+  int eyeNow[2][EYE_SNAP];
+  int mouthNow[MOUTH_SNAP];
+  snapEye(LEFT, eyeNow[0]);
+  snapEye(RIGHT, eyeNow[1]);
+  snapMouth(mouthNow);
+  const zgfx::Rect rectNow[3] = {eyeRect(LEFT), eyeRect(RIGHT), mouthRect()};
+
+  if (!_snapValid) {
+    add(full);
+  } else {
+    const bool changed[3] = {
+      memcmp(eyeNow[0], _snapEye[0], sizeof(eyeNow[0])) != 0,
+      memcmp(eyeNow[1], _snapEye[1], sizeof(eyeNow[1])) != 0,
+      memcmp(mouthNow, _snapMouth, sizeof(mouthNow)) != 0,
+    };
+    for (int i = 0; i < 3; i++) {
+      if (!changed[i])
+        continue;
+      add(_snapRect[i]);  // where it was, to erase it
+      if (!(rectNow[i] == _snapRect[i]))
+        add(rectNow[i]);  // where it is now
+    }
+  }
+
+  memcpy(_snapEye, eyeNow, sizeof(_snapEye));
+  memcpy(_snapMouth, mouthNow, sizeof(_snapMouth));
+  for (int i = 0; i < 3; i++)
+    _snapRect[i] = rectNow[i];
+  _snapValid = true;
+  return n;
+}
+#endif  // ZGFX_AVAILABLE

@@ -1,16 +1,9 @@
 #include "ZSPR_Bottango_Driver.h"
 
-#ifndef BOARD_MOTOR_RX
-#define BOARD_MOTOR_RX 18
-#endif
-#ifndef BOARD_MOTOR_TX
-#define BOARD_MOTOR_TX 19
-#endif
 // listed here so the library finder links these libraries to this one (Servo_Module.h is outside lib/)
 #include <SCServo.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Wire.h> // board_io.h -> KTS1622.h needs it; the finder only adds framework libs named here
+#include <SPI.h>
 #include "Servo_Module.h"
 
 ZSPR_BottangoDriver &ZSPR_BottangoDriver::instance()
@@ -19,31 +12,46 @@ ZSPR_BottangoDriver &ZSPR_BottangoDriver::instance()
     return driver;
 }
 
-void ZSPR_BottangoDriver::begin(int signalOffset)
+void ZSPR_BottangoDriver::begin(Servo_Module &bus, int signalOffset)
 {
-    if (_bus != nullptr)
+    _signalOffset = signalOffset;
+    _hostStopped = false;
+
+    if (_bus == &bus)
     {
         return;
     }
 
-    _signalOffset = signalOffset;
-    _bus = new Servo_Module(true);
-    _bus->setup();
-
-    // Setup pings need replies; afterwards stop waiting for them so a missing servo
-    // can never stall the Bottango loop.
-    _bus->sc.Level = 0;
-    _bus->st.Level = 0;
+    // Order matters: stop the servo task's polling first so nothing queues ahead
+    // of the first animation write, then drop the reply waits.
+    bus.pausePolling(true);
+    bus.setAckWait(false);
+    _bus = &bus;
 }
 
-void ZSPR_BottangoDriver::servoWrite(uint8_t id, int signal)
+void ZSPR_BottangoDriver::end()
 {
     if (_bus == nullptr)
     {
         return;
     }
 
+    Servo_Module *bus = _bus;
+    _bus = nullptr; // writes become no-ops before the bus is handed back
+
+    bus->setAckWait(true);
+    bus->pausePolling(false);
+}
+
+void ZSPR_BottangoDriver::servoWrite(uint8_t id, int signal)
+{
+    Servo_Module *bus = _bus;
+    if (bus == nullptr)
+    {
+        return;
+    }
+
     int position = constrain(signal - _signalOffset, MIN_POSITION, MAX_POSITION);
     // time = 0, speed = 0: move at full speed, Bottango's curves provide the pacing
-    _bus->writePosition(id, position, 0, 0);
+    bus->writePosition(id, position, 0, 0);
 }

@@ -1,11 +1,16 @@
 #include "BottangoArduinoCallbacks.h"
+#include "ZSPR_Bottango_Driver.h"
 
 // Bottango callbacks. BottangoArduinoDriver's own BottangoArduinoCallbacks.cpp is not compiled
-// in this layout, so these definitions satisfy the linker. Add behaviour here as needed.
+// in this layout (see its library.json), so these definitions satisfy the linker. Add
+// behaviour here as needed.
 namespace Callbacks
 {
     void onThisControllerStarted() {}
-    void onThisControllerStopped() {}
+
+    // The Bottango app sent "stop" (or we called BottangoCore::stop ourselves).
+    // Bottango_Module sees the flag and leaves Bottango mode.
+    void onThisControllerStopped() { ZSPR_BottangoDriver::instance().notifyHostStopped(); }
     void onEarlyLoop() {}
     void onLateLoop() {}
 

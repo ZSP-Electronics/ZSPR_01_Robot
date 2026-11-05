@@ -11,15 +11,9 @@
 #include "initGT911_Structs.h"
 #include "board_io.h" // pins may live on the IO expander: route via board_* (int pins, not int8_t)
 
-//#define GT911_Debug_Serial
-
-#ifdef GT911_Debug_Serial
-#define GT911_Log(a) Serial.println("[GT911] " + String(a))
-#define GT911_Logf(a, ...) Serial.printf(String("[GT911] " + String(a) + "\n").c_str(), ##__VA_ARGS__)
-#else
+// Logging is compiled out: the USB serial port belongs to the CLI / Bottango.
 #define GT911_Log(a)
 #define GT911_Logf(a, ...)
-#endif // GT911_Debug_Serial
 
 // 0x28/0x29 (0x14 7bit)
 #define GT911_I2C_ADDR_28 0x14
