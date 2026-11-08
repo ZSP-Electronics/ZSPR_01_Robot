@@ -205,12 +205,20 @@ namespace zgfx
         // Redraw into `target` (the buffer about to be shown) every area that
         // changed this frame or last. Returns true if anything was drawn, i.e. the
         // buffer should be presented.
-        bool render(Canvas &target);
+        //
+        // With a scratch buffer, each area is drawn into it a strip at a time and each
+        // finished strip is copied into `target` row by row. All the clearing and
+        // overdraw then lands in the scratch (fast internal RAM) and the target (a PSRAM
+        // frame buffer the display is streaming from) gets one sequential write per pixel.
+        // Without one, areas are drawn into `target` directly.
+        bool render(Canvas &target, color_t *scratch = nullptr, size_t scratchPixels = 0);
 
         // Call after presenting.
         void endFrame() { _dirty.nextFrame(); }
 
     private:
+        void paintArea(Canvas &c, const Rect &area); // c's clip must be within area
+
         struct Capture
         {
             Widget *w = nullptr;

@@ -1,11 +1,11 @@
 #include "UI_Apps.h"
 
-uint8_t ui_register_apps(HAL_Robot_Module &robot, UI_Home &home)
+uint8_t ui_register_apps(HAL_Robot_Module &robot, Robot_Procedure &procedure, UI_Home &home)
 {
     uint8_t n = 0;
 #define UI_APP(Class)                                  \
     {                                                  \
-        static Class app(robot);                       \
+        static Class app(robot, procedure);                       \
         if (home.addApp(&app))                     \
             n++;                                       \
     }

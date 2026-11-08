@@ -107,12 +107,17 @@ void UI_Task::run()
 
     clearBuffers();
 
+    // Internal RAM, so redraws do their clearing and overdraw here and the PSRAM frame
+    // buffer the display streams from only gets the finished pixels. Without it (out of
+    // internal RAM) frames are drawn straight into the frame buffer.
+    _scratch = (uint16_t *)heap_caps_malloc(UI_SCRATCH_PIXELS * sizeof(uint16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
 #if UI_TEST_PATTERN
     runTestPattern();
 #endif
 
     // Declared in UI_Apps.h. Apps first: the home screen renders their icons in begin().
-    ui_register_apps(_robot, _home);
+    ui_register_apps(_robot, _procedure, _home);
     for (uint8_t i = 0; i < _home.appCount(); i++)
         _home.app(i)->begin();
     _home.begin();
@@ -135,7 +140,7 @@ void UI_Task::run()
         uint16_t *fb = display->backBuffer();
         if (fb)
         {
-            if (_active->frame(fb, _width, _height))
+            if (_active->frame(fb, _width, _height, _scratch, _scratch ? UI_SCRATCH_PIXELS : 0))
             {
                 display->present(); // waits for vsync, so a changing screen paces itself
             }

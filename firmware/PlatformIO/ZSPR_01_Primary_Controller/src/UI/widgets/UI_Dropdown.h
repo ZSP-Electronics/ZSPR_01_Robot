@@ -25,6 +25,24 @@ public:
         _list = zgfx::Rect{box.x, (int16_t)box.bottom(), box.w, (int16_t)(rows * _cellH)};
     }
 
+    // Called after the grid opens or closes. A screen with several drop-downs uses it to
+    // close the others and to move the opened one to the front.
+    using ToggleCallback = void (*)(void *user, bool open);
+    void setOnToggle(ToggleCallback cb, void *user)
+    {
+        _toggleCb = cb;
+        _toggleUser = user;
+    }
+
+    // Puts the grid somewhere other than directly below the box (for a box too close to
+    // a screen edge). It keeps the same columns and cell height, so size `r` to
+    // rows * cellH. Only takes effect while closed.
+    void setListRect(const zgfx::Rect &r)
+    {
+        if (!_open)
+            _list = r;
+    }
+
     int value() const { return _value; }
     void setValue(int v)
     {
@@ -43,6 +61,8 @@ public:
         _pressed = NONE;
         setBounds(open ? _box.unite(_list) : _box); // redraws the old and the new area
         invalidate();
+        if (_toggleCb)
+            _toggleCb(_toggleUser, open);
     }
 
     void draw(zgfx::Canvas &c) override
@@ -94,6 +114,7 @@ public:
         switch (e.type)
         {
         case zgfx::TouchEvent::Down:
+            _downOutside = _open && zone == NONE; // in the bounds but on neither box nor grid
             setPressed(zone);
             return true;
         case zgfx::TouchEvent::Move:
@@ -103,7 +124,11 @@ public:
         case zgfx::TouchEvent::Up:
         {
             bool fire = zone != NONE && zone == _pressed;
+            bool dismiss = _downOutside && zone == NONE;
+            _downOutside = false;
             setPressed(NONE);
+            if (dismiss)
+                setOpen(false);
             if (fire)
             {
                 if (zone == HEADER)
@@ -134,6 +159,9 @@ private:
     int _value;
     bool _open = false;
     int _pressed = NONE; // HEADER, a cell index, or NONE
+    bool _downOutside = false;
+    ToggleCallback _toggleCb = nullptr;
+    void *_toggleUser = nullptr;
 
     zgfx::Rect cellRect(int i) const
     {

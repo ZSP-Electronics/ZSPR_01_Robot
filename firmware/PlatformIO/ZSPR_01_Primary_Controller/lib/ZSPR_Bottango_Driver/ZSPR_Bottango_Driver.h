@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-class Servo_Module; // SC09 bus servo driver (module/Servo_Module.h), kept out of this header
+class Servo_Module; // SC09 bus servo driver (src/ZSPR_Robot_01/modules/Servo_Module.h), kept out of this header
 
 // Bridges Bottango pin servos onto SC09 bus servos.
 //

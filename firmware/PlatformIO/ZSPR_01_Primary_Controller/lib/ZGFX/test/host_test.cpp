@@ -403,8 +403,12 @@ static bool sameImage(const Canvas &a, const Canvas &b)
 
 // Two buffers swapped each frame, partial redraws driven by the tracker. After every
 // presented frame the visible buffer must equal a from-scratch render.
-static void testDoubleBuffering()
+// scratchPx > 0 draws through a strip buffer of that many pixels (narrower than some
+// areas, so both the strip path and the direct fallback run).
+static void testDoubleBuffering(size_t scratchPx)
 {
+    std::vector<color_t> scratch(scratchPx ? scratchPx : 1);
+    color_t *sp = scratchPx ? scratch.data() : nullptr;
     const int W = 120, H = 80;
     Guarded bufA(W, H), bufB(W, H), ref(W, H);
     Canvas canv[2] = {bufA.canvas(), bufB.canvas()};
@@ -447,7 +451,7 @@ static void testDoubleBuffering()
             btn.setVisible(true);
 
         int back = 1 - front;
-        if (screen.render(canv[back]))
+        if (screen.render(canv[back], sp, scratchPx))
             front = back; // present
         screen.endFrame();
 
@@ -631,7 +635,9 @@ int main()
     testText();
     testDirty();
     testTouch();
-    testDoubleBuffering();
+    testDoubleBuffering(0);
+    testDoubleBuffering(37);
+    testDoubleBuffering(300);
     testPartialRedraw();
     testDials();
     testCompassPartial();

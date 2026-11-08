@@ -76,12 +76,12 @@ void UI_Base::detectSwipe(const TouchEvent &ev)
     }
 }
 
-bool UI_Base::frame(uint16_t *fb, uint16_t w, uint16_t h)
+bool UI_Base::frame(uint16_t *fb, uint16_t w, uint16_t h, uint16_t *scratch, size_t scratchPixels)
 {
     refresh();
     // fb is the back buffer: two frames old, which Screen::render() accounts for.
     zgfx::Canvas canvas(fb, (int16_t)w, (int16_t)h);
-    return _screen.render(canvas);
+    return _screen.render(canvas, scratch, scratchPixels);
 }
 
 const uint16_t *UI_Base::icon()

@@ -59,6 +59,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 
     # Libraries - BQ25883 (charger)
     ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/BQ25883/BQ25883.cpp
+
+    # Libraries - INA232 (current/voltage monitor)
+    ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/INA232/INA232.cpp
 )
 
 # Add include paths
@@ -68,6 +71,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Libraries/Serial
     Libraries/SSD1306
     Libraries/BQ25883
+    Libraries/INA232
     # Add user defined include paths
 )
 

@@ -97,3 +97,7 @@
 #define BOARD_CURR_ALERT1    IO_PIN_30
 #define BOARD_CURR_ALERT2    IO_PIN_2
 #define BOARD_REG_EN         IO_PIN_31
+
+
+/* Hardware configuration constants */
+#define MAX_SERVO_NUM 12

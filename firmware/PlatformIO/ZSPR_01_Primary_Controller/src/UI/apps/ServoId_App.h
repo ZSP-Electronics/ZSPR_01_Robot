@@ -16,7 +16,7 @@
 class ServoId_App : public UI_Base
 {
 public:
-    explicit ServoId_App(HAL_Robot_Module &robot) : UI_Base(robot, "Servo ID", {276, 200}) {}
+    ServoId_App(HAL_Robot_Module &robot, Robot_Procedure &procedure) : UI_Base(robot, procedure, "Servo ID", {163, 200}) {}
 
 protected:
     void onStart() override;

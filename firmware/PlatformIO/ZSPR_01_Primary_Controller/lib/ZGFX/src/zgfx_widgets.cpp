@@ -474,7 +474,34 @@ namespace zgfx
         }
     }
 
-    bool Screen::render(Canvas &target)
+    void Screen::paintArea(Canvas &c, const Rect &area)
+    {
+        // Start at the topmost opaque widget covering the whole area: it paints every
+        // pixel, so the background clear and anything beneath it would be overdrawn.
+        uint8_t first = 0;
+        bool covered = false;
+        for (uint8_t i = _count; i-- > 0;)
+        {
+            Widget *w = _widgets[i];
+            if (w->visible() && w->opaque() && w->bounds().contains(area))
+            {
+                first = i;
+                covered = true;
+                break;
+            }
+        }
+        if (!covered)
+            c.clear(_background);
+
+        for (uint8_t i = first; i < _count; i++)
+        {
+            Widget *w = _widgets[i];
+            if (w->visible() && w->bounds().intersects(c.clip()))
+                w->draw(c);
+        }
+    }
+
+    bool Screen::render(Canvas &target, color_t *scratch, size_t scratchPixels)
     {
         Rect areas[DirtyTracker::MAX_RECTS];
         uint8_t n = _dirty.redrawRects(areas, DirtyTracker::MAX_RECTS);
@@ -483,30 +510,37 @@ namespace zgfx
 
         for (uint8_t a = 0; a < n; a++)
         {
-            target.setClip(areas[a]);
+            const Rect area = areas[a].intersect(target.bounds());
+            if (area.empty())
+                continue;
 
-            // Start at the topmost opaque widget covering the whole area: it paints every
-            // pixel, so the background clear and anything beneath it would be overdrawn.
-            uint8_t first = 0;
-            bool covered = false;
-            for (uint8_t i = _count; i-- > 0;)
+            if (!scratch || !target.pixels() || scratchPixels < (size_t)area.w)
             {
-                Widget *w = _widgets[i];
-                if (w->visible() && w->opaque() && w->bounds().contains(areas[a]))
-                {
-                    first = i;
-                    covered = true;
-                    break;
-                }
+                target.setClip(area);
+                paintArea(target, area);
+                continue;
             }
-            if (!covered)
-                target.clear(_background);
 
-            for (uint8_t i = first; i < _count; i++)
+            // The scratch holds `rows` rows of the area, `area.w` pixels apart. The strip
+            // canvas is laid over it so that screen (x, y) lands at
+            //   scratch[(y - top) * area.w + (x - area.x)]
+            // which lets widgets keep drawing in screen coordinates. Its clip is the strip,
+            // and every Canvas write honours the clip, so nothing outside the scratch is
+            // touched. (Widgets must not read pixels back or take sub() canvases of it.)
+            const int rows = (int)imin((int32_t)area.h, (int32_t)(scratchPixels / (size_t)area.w));
+            for (int top = area.y; top < area.bottom(); top += rows)
             {
-                Widget *w = _widgets[i];
-                if (w->visible() && w->bounds().intersects(areas[a]))
-                    w->draw(target);
+                const int h = (int)imin((int32_t)rows, area.bottom() - top);
+                const uintptr_t origin = (uintptr_t)scratch - (uintptr_t)(((int32_t)top * area.w + area.x) * (int32_t)sizeof(color_t));
+                Canvas strip((color_t *)origin, target.width(), target.height(), area.w);
+                const Rect band{area.x, (int16_t)top, area.w, (int16_t)h};
+                strip.setClip(band);
+                paintArea(strip, area);
+
+                color_t *dst = target.pixels() + (int32_t)top * target.stride() + area.x;
+                const color_t *src = scratch;
+                for (int r = 0; r < h; r++, dst += target.stride(), src += area.w)
+                    memcpy(dst, src, (size_t)area.w * sizeof(color_t));
             }
         }
         target.resetClip();

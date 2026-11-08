@@ -4,25 +4,11 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include "HAL_Robot_Module.h"
+#include "Robot_Procedure.h"
 #include "UI_Base.h"
 #include "UI_Home.h"
 
-// The one task that draws. It owns the screen: nothing else may write to the
-// frame buffers, so ZGFX needs no locking. Other tasks influence what is shown
-// only through module state (read with get()) or by posting to a queue/flag that
-// this task polls.
-//
-// The task itself is generic. What is on screen is the active UI_Base: the
-// home screen (the robot face, with the app overlay) or one of the apps declared
-// in UI_Apps.h.
-//
-//   touch  : Display task -> display->touchQueue() -> active->touch()
-//   draw   : active->frame() into display->backBuffer(), then present()
-//   switch : overlay icon / app Home button -> takeLaunch()/takeHome() here
-#define UI_TASK_STACK_BYTES 8192
-#define UI_TASK_PRIORITY 1 // below the HAL tasks: the screen must never delay sensor reads
-#define UI_TASK_PERIOD_MS 20 // 50 fps cap; a changing frame also waits ~2 vsyncs in present()
-#define UI_TASK_CORE 1
+#define UI_SCRATCH_PIXELS (480 * 16) // internal-RAM draw strip: 15 KB, 16+ rows of any area
 
 // 1: show a fixed test pattern instead of the UI (no animation, no touch), to tell
 // scan-out faults (bands repeat or shift even though nothing is redrawn) from drawing
@@ -34,7 +20,7 @@
 class UI_Task
 {
 public:
-    explicit UI_Task(HAL_Robot_Module &robot) : _robot(robot), _home(robot) {}
+    UI_Task(HAL_Robot_Module &robot, Robot_Procedure &procedure) : _robot(robot), _procedure(procedure), _home(robot, procedure) {}
 
     // Call once from setup(), after robot.init(). Does nothing (returns false)
     // if the display didn't come up.
@@ -42,9 +28,11 @@ public:
 
 private:
     HAL_Robot_Module &_robot;
+    Robot_Procedure &_procedure;
     TaskHandle_t _task = nullptr;
     uint16_t _width = 0;
     uint16_t _height = 0;
+    uint16_t *_scratch = nullptr; // UI_SCRATCH_PIXELS, internal RAM; null if it couldn't be allocated
 
     UI_Home _home;
     UI_Base *_active = nullptr;

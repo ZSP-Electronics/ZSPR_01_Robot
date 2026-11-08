@@ -8,12 +8,12 @@ bool BQ25883::begin(Board_I2C_Handle handle){
     _handle = handle;
     // check PN & DEV
 
-    // uint8_t regCheck = this->readPartInfoReg();
-    if(this->readPartInfoReg() != BQ25883_PARTINFO){
-        if(!Board_I2C_IsDeviceReady(_handle, BQ25883_I2C_ADDRESS))
-            return false;
-    }
-    return true;
+    if(!Board_I2C_IsDeviceReady(_handle, BQ25883_I2C_ADDRESS))
+        return false;
+    // PN[3:0] lives in REG25 bits 6:3 (0011 = BQ25883). DEV_REV (bits 2:0)
+    // differs between silicon revisions, so don't compare the whole byte.
+    this->readPartInfoReg();
+    return this->getPartNumber() == BQ25883_PN;
 }
 #else
 bool BQ25883::begin(){
@@ -228,9 +228,8 @@ float BQ25883::getCELLLOWV_THRESH(){
 
 float BQ25883::getVCELL_RECHG_THRESH_OFF(){
     uint8_t vCellRechgThreshOffReg = ((0x00000300 & this->rawChargeControlSettingsReg) >> 8);
-    float vCellRechgThreshOff  = 0.05;
-    vCellRechgThreshOff  = (0.05 * vCellRechgThreshOffReg);
-    return vCellRechgThreshOff;
+    // Pack-level offset below VREG: 100 mV + 100 mV/LSB (100..400 mV)
+    return 0.1f + (0.1f * vCellRechgThreshOffReg);
 }
 
 bool BQ25883::getPFM_DIS(){
@@ -316,6 +315,7 @@ bool BQ25883::getWD_STAT(){ return ((0x0008 & this->rawChargeStatusReg) >> 3); }
 uint8_t BQ25883::getCHRG_STAT(){ return ((0x0007 & this->rawChargeStatusReg) >> 0); }
 bool BQ25883::getPG_STAT(){ return ((0x8000 & this->rawChargeStatusReg) >> 15); }
 uint8_t BQ25883::getVBUS_STAT(){ return ((0x7000 & this->rawChargeStatusReg) >> 12); }
+bool BQ25883::getVSYS_STAT(){ return ((0x0100 & this->rawChargeStatusReg) >> 8); }
 uint8_t BQ25883::getICO_STAT(){ return ((0x0600 & this->rawChargeStatusReg) >> 9); }
 
 uint8_t BQ25883::readNtcStatusReg(){ this->rawNtcStatusReg = this->read8(BQ25883_REG_NTC_STATUS); return this->rawNtcStatusReg; }
@@ -324,6 +324,7 @@ uint8_t BQ25883::getNTCStatus(){ return ((0b00000111 & this->rawNtcStatusReg) >>
 uint8_t BQ25883::readFaultStatusReg(){ this->rawFaultStatusReg = this->read8(BQ25883_REG_FAULT_STATUS); return this->rawFaultStatusReg; }
 bool BQ25883::getVBUS_OVP_STAT(){ return ((0b10000000 & this->rawFaultStatusReg) >> 7); }
 bool BQ25883::getTSHUT_STAT(){ return ((0b01000000 & this->rawFaultStatusReg) >> 6); }
+bool BQ25883::getBATOVP_STAT(){ return ((0b00100000 & this->rawFaultStatusReg) >> 5); }
 bool BQ25883::getTMR_STAT(){ return ((0b00010000 & this->rawFaultStatusReg) >> 4); }
 
 uint16_t BQ25883::readChargeFlagsReg(){ this->rawChargeFlagsReg = this->read16(BQ25883_REG_CHARGER_FLAG_1); return this->rawChargeFlagsReg; }
@@ -340,6 +341,7 @@ bool BQ25883::getICO_FLAG(){ return ((0x0200 & this->rawChargeFlagsReg) >> 9); }
 uint8_t BQ25883::readFaultFlagsReg(){ this->rawFaultFlagsReg = this->read8(BQ25883_REG_FAULT_FLAG); return this->rawFaultFlagsReg; }
 bool BQ25883::getVBUS_OVP_FLAG(){ return ((0b10000000 & this->rawFaultFlagsReg) >> 7); }
 bool BQ25883::getTSHUT_FLAG(){ return ((0b01000000 & this->rawFaultFlagsReg) >> 6); }
+bool BQ25883::getBATOVP_FLAG(){ return ((0b00100000 & this->rawFaultFlagsReg) >> 5); }
 bool BQ25883::getTMR_FLAG(){ return ((0b00010000 & this->rawFaultFlagsReg) >> 4); }
 
 uint16_t BQ25883::readChargerIntMaskReg(){ this->rawChargerIntMaskReg = this->read16(BQ25883_REG_CHARGER_MASK_1); return this->rawChargerIntMaskReg; }
@@ -358,6 +360,7 @@ uint8_t BQ25883::readFaultIntMaskReg(){ this->rawFaultIntMaskReg = this->read8(B
 bool BQ25883::getVBUS_OVP_MASK(){ return ((0b10000000 & this->rawFaultIntMaskReg) >> 7); }
 bool BQ25883::getTSHUT_MASK(){ return ((0b01000000 & this->rawFaultIntMaskReg) >> 6); }
 bool BQ25883::getTMR_MASK(){ return ((0b00010000 & this->rawFaultIntMaskReg) >> 4); }
+bool BQ25883::getBATOVP_MASK(){ return ((0b00100000 & this->rawFaultIntMaskReg) >> 5); }
 bool BQ25883::getSNS_SHORT_MASK(){ return ((0b00001000 & this->rawFaultIntMaskReg) >> 3); }
 
 uint8_t BQ25883::readADCControlSettingsReg(){ this->rawADCControlSettingsReg = this->read8(BQ25883_REG_ADC_CONTROL); return this->rawADCControlSettingsReg; }
@@ -371,7 +374,7 @@ bool BQ25883::getICHG_ADC_DIS(){ return ((0b01000000 & this->rawADCFuncDisSettin
 bool BQ25883::getVBUS_ADC_DIS(){ return ((0b00100000 & this->rawADCFuncDisSettingsReg) >> 5); }
 bool BQ25883::getVBAT_ADC_DIS(){ return ((0b00010000 & this->rawADCFuncDisSettingsReg) >> 4); }
 bool BQ25883::getTS_ADC_DIS(){ return ((0b00000100 & this->rawADCFuncDisSettingsReg) >> 2); }
-bool BQ25883::getVCELL_ADC_DIS(){ return ((0b00000010 & this->rawADCFuncDisSettingsReg) >> 1); }
+bool BQ25883::getVSYS_ADC_DIS(){ return ((0b00001000 & this->rawADCFuncDisSettingsReg) >> 3); }
 bool BQ25883::getTDIE_ADC_DIS(){ return ((0b00000001 & this->rawADCFuncDisSettingsReg) >> 0); }
 
 int16_t BQ25883::readADCIbusReg(){ this->rawADCIbusReg = this->readADC(BQ25883_REG_IBUS_ADC_1); return this->rawADCIbusReg; }
@@ -531,7 +534,7 @@ void BQ25883::setFORCE_ICO(bool enable){ uint8_t regValue = this->read8(BQ25883_
 void BQ25883::setFORCE_INDET(bool enable){ uint8_t regValue = this->read8(BQ25883_REG_INPUT_CURRENT_LIMIT); regValue = (regValue & 0b10111111); if(enable) regValue = (regValue | 0b01000000); this->write8(BQ25883_REG_INPUT_CURRENT_LIMIT, regValue); }
 void BQ25883::setEN_ICO(bool enable){ uint8_t regValue = this->read8(BQ25883_REG_INPUT_CURRENT_LIMIT); regValue = (regValue & 0b11011111); if(enable) regValue = (regValue | 0b00100000); this->write8(BQ25883_REG_INPUT_CURRENT_LIMIT, regValue); }
 
-void BQ25883::setPrechargeCurrentLimit(float preCurrentLimit){ uint8_t regValue = this->read8(BQ25883_REG_PRE_TERM_CURRENT_LIMIT); regValue = (regValue & 0b00001111); if(preCurrentLimit < 0.05) preCurrentLimit = 0.05; else if(preCurrentLimit > 0.8) preCurrentLimit = 0.8; uint8_t prechargeCurrentLimit = lround(((preCurrentLimit - 0.05)*1000.0)/50.0); prechargeCurrentLimit = (prechargeCurrentLimit & 0b11110000); regValue = (regValue | prechargeCurrentLimit); this->write8(BQ25883_REG_PRE_TERM_CURRENT_LIMIT, regValue); }
+void BQ25883::setPrechargeCurrentLimit(float preCurrentLimit){ uint8_t regValue = this->read8(BQ25883_REG_PRE_TERM_CURRENT_LIMIT); regValue = (regValue & 0b00001111); if(preCurrentLimit < 0.05) preCurrentLimit = 0.05; else if(preCurrentLimit > 0.8) preCurrentLimit = 0.8; uint8_t prechargeCurrentLimit = lround(((preCurrentLimit - 0.05)*1000.0)/50.0); prechargeCurrentLimit = ((prechargeCurrentLimit & 0x0F) << 4); regValue = (regValue | prechargeCurrentLimit); this->write8(BQ25883_REG_PRE_TERM_CURRENT_LIMIT, regValue); }
 void BQ25883::setTerminationCurrentLimit(float termCurrentLimit){ uint8_t regValue = this->read8(BQ25883_REG_PRE_TERM_CURRENT_LIMIT); regValue = (regValue & 0b11110000); if(termCurrentLimit < 0.05) termCurrentLimit = 0.05; else if(termCurrentLimit > 0.8) termCurrentLimit = 0.8; uint8_t terminationCurrentLimit = lround(((termCurrentLimit - 0.05)*1000.0)/50.0); terminationCurrentLimit = (terminationCurrentLimit & 0b00001111); regValue = (regValue | terminationCurrentLimit); this->write8(BQ25883_REG_PRE_TERM_CURRENT_LIMIT, regValue); }
 
 void BQ25883::setEN_TERM(bool enable){ uint8_t regValue = this->read8(BQ25883_REG_CHARGER_CONTROL_1); regValue = (regValue & 0b01111111); if(enable) regValue = (regValue | 0b10000000); this->write8(BQ25883_REG_CHARGER_CONTROL_1, regValue); }
@@ -548,24 +551,31 @@ void BQ25883::setVCELL_RECHG_THRESH_OFF(uint8_t rechargeThresholdOffset){ uint8_
 void BQ25883::setPFM_DIS(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_CHARGER_CONTROL_3); regValue = (regValue & 0b01111111); if(disable) regValue = (regValue | 0b10000000); this->write8(BQ25883_REG_CHARGER_CONTROL_3, regValue); }
 void BQ25883::wdReset(){ uint8_t regValue = this->read8(BQ25883_REG_CHARGER_CONTROL_3); regValue = (regValue & 0b10111111); regValue = (regValue | 0b01000000); this->write8(BQ25883_REG_CHARGER_CONTROL_3, regValue); }
 void BQ25883::setTOPOFF_TIMER(uint8_t topOffTimer){ uint8_t regValue = this->read8(BQ25883_REG_CHARGER_CONTROL_3); regValue = (regValue & 0b11001111); switch(topOffTimer){ case 1: regValue = (regValue | 0b00010000); break; case 2: regValue = (regValue | 0b00100000); break; case 3: regValue = (regValue | 0b00110000); break; default: break; } this->write8(BQ25883_REG_CHARGER_CONTROL_3, regValue); }
+// SYS_MIN: 6.0 V + 100 mV/LSB, 6.0..7.5 V, REG07[3:0]
+void BQ25883::setSYS_MIN(float sysMin){ if(sysMin < 6.0f) sysMin = 6.0f; else if(sysMin > 7.5f) sysMin = 7.5f; uint8_t code = (uint8_t)lround((sysMin - 6.0f) / 0.1f); this->updateBits(BQ25883_REG_CHARGER_CONTROL_3, 0x0F, code); }
+float BQ25883::getSYS_MIN(){ return 6.0f + 0.1f * (float)((this->rawChargeControlSettingsReg >> 16) & 0x0F); }
 void BQ25883::setJEITA_VSET(uint8_t jeitaSetting){ uint8_t regValue = this->read8(BQ25883_REG_CHARGER_CONTROL_4); regValue = (regValue & 0b11100111); switch(jeitaSetting){ case 0: break; case 2: regValue = (regValue | 0b00010000); break; case 3: regValue = (regValue | 0b00011000); break; default: regValue = (regValue | 0b00001000); break; } this->write8(BQ25883_REG_CHARGER_CONTROL_4, regValue); }
 void BQ25883::setJEITA_ISETH(uint8_t jeitaSetting){ uint8_t regValue = this->read8(BQ25883_REG_CHARGER_CONTROL_4); regValue = (regValue & 0b11111011); if(jeitaSetting) regValue = (regValue | 0b00000100); this->write8(BQ25883_REG_CHARGER_CONTROL_4, regValue); }
 void BQ25883::setJEITA_ISETC(uint8_t jeitaSetting){ uint8_t regValue = this->read8(BQ25883_REG_CHARGER_CONTROL_4); regValue = (regValue & 0b11111100); switch(jeitaSetting){ case 0: break; case 2: regValue = (regValue | 0b00000010); break; case 3: regValue = (regValue | 0b00000011); break; default: regValue = (regValue | 0b00000001); break; } this->write8(BQ25883_REG_CHARGER_CONTROL_4, regValue); }
 
-void BQ25883::setADC_DONE_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b01111111); if(disable) regValue = (regValue | 0b10000000); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
-void BQ25883::setIINDPM_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b10111111); if(disable) regValue = (regValue | 0b01000000); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
-void BQ25883::setVINDPM_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b11011111); if(disable) regValue = (regValue | 0b00100000); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
-void BQ25883::setT_REG_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b11101111); if(disable) regValue = (regValue | 0b00010000); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
-void BQ25883::setWD_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b11110111); if(disable) regValue = (regValue | 0b00001000); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
-void BQ25883::setCHRG_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b11111000); if(disable) regValue = (regValue | 0b00000001); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
-void BQ25883::setPG_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b01111111); if(disable) regValue = (regValue | 0b10000000); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
-void BQ25883::setVBUS_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b10111111); if(disable) regValue = (regValue | 0b01000000); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
-void BQ25883::setTS_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b11011111); if(disable) regValue = (regValue | 0b00100000); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
-void BQ25883::setICO_MASK(bool disable){ uint16_t regValue = this->read16(BQ25883_REG_CHARGER_MASK_1); regValue = (regValue & 0b11101111); if(disable) regValue = (regValue | 0b00010000); this->write16(BQ25883_REG_CHARGER_MASK_1, regValue); }
+// REG12 (Charger Mask 1) and REG13 (Charger Mask 2) are separate 8-bit
+// registers; each setter does an 8-bit read-modify-write of its own register.
+void BQ25883::setADC_DONE_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_1, 0x80, disable ? 0x80 : 0x00); }
+void BQ25883::setIINDPM_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_1, 0x40, disable ? 0x40 : 0x00); }
+void BQ25883::setVINDPM_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_1, 0x20, disable ? 0x20 : 0x00); }
+void BQ25883::setT_REG_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_1, 0x10, disable ? 0x10 : 0x00); }
+void BQ25883::setWD_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_1, 0x08, disable ? 0x08 : 0x00); }
+void BQ25883::setCHRG_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_1, 0x01, disable ? 0x01 : 0x00); }
+void BQ25883::setPG_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_2, 0x80, disable ? 0x80 : 0x00); }
+void BQ25883::setVBUS_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_2, 0x10, disable ? 0x10 : 0x00); }
+void BQ25883::setTS_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_2, 0x04, disable ? 0x04 : 0x00); }
+void BQ25883::setICO_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_2, 0x02, disable ? 0x02 : 0x00); }
+void BQ25883::setVSYS_MASK(bool disable){ this->updateBits(BQ25883_REG_CHARGER_MASK_2, 0x01, disable ? 0x01 : 0x00); }
 
 void BQ25883::setVBUS_OVP_MASK(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_FAULT_MASK); regValue = (regValue & 0b01111111); if(disable) regValue = (regValue | 0b10000000); this->write8(BQ25883_REG_FAULT_MASK, regValue); }
 void BQ25883::setTSHUT_MASK(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_FAULT_MASK); regValue = (regValue & 0b10111111); if(disable) regValue = (regValue | 0b01000000); this->write8(BQ25883_REG_FAULT_MASK, regValue); }
 void BQ25883::setTMR_MASK(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_FAULT_MASK); regValue = (regValue & 0b11101111); if(disable) regValue = (regValue | 0b00010000); this->write8(BQ25883_REG_FAULT_MASK, regValue); }
+void BQ25883::setBATOVP_MASK(bool disable){ this->updateBits(BQ25883_REG_FAULT_MASK, 0x20, disable ? 0x20 : 0x00); }
 void BQ25883::setSNS_SHORT_MASK(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_FAULT_MASK); regValue = (regValue & 0b11110111); if(disable) regValue = (regValue | 0b00001000); this->write8(BQ25883_REG_FAULT_MASK, regValue); }
 
 void BQ25883::setADC_EN(bool enable){ uint8_t regValue = this->read8(BQ25883_REG_ADC_CONTROL); regValue = (regValue & 0b01111111); if(enable) regValue = (regValue | 0b10000000); this->write8(BQ25883_REG_ADC_CONTROL, regValue); }
@@ -577,7 +587,8 @@ void BQ25883::setICHG_ADC_DIS(bool disable){ uint8_t regValue = this->read8(BQ25
 void BQ25883::setVBUS_ADC_DIS(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_ADC_FUNCTION_DISABLE); regValue = (regValue & 0b11011111); if(disable) regValue = (regValue | 0b00100000); this->write8(BQ25883_REG_ADC_FUNCTION_DISABLE, regValue); }
 void BQ25883::setVBAT_ADC_DIS(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_ADC_FUNCTION_DISABLE); regValue = (regValue & 0b11101111); if(disable) regValue = (regValue | 0b00010000); this->write8(BQ25883_REG_ADC_FUNCTION_DISABLE, regValue); }
 void BQ25883::setTS_ADC_DIS(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_ADC_FUNCTION_DISABLE); regValue = (regValue & 0b11111011); if(disable) regValue = (regValue | 0b00000100); this->write8(BQ25883_REG_ADC_FUNCTION_DISABLE, regValue); }
-void BQ25883::setVCELL_ADC_DIS(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_ADC_FUNCTION_DISABLE); regValue = (regValue & 0b11111101); if(disable) regValue = (regValue | 0b00000010); this->write8(BQ25883_REG_ADC_FUNCTION_DISABLE, regValue); }
+// Bit 3 is VSYS_ADC_DIS; bit 1 is reserved (the BQ25883 has no per-cell ADC).
+void BQ25883::setVSYS_ADC_DIS(bool disable){ this->updateBits(BQ25883_REG_ADC_FUNCTION_DISABLE, 0x08, disable ? 0x08 : 0x00); }
 void BQ25883::setTDIE_ADC_DIS(bool disable){ uint8_t regValue = this->read8(BQ25883_REG_ADC_FUNCTION_DISABLE); regValue = (regValue & 0b11111110); if(disable) regValue = (regValue | 0b00000001); this->write8(BQ25883_REG_ADC_FUNCTION_DISABLE, regValue); }
 
 void BQ25883::registerReset(){ uint8_t regValue = this->read8(BQ25883_REG_PART_INFORMATION); regValue = (regValue & 0b01111111); regValue = (regValue | 0b10000000); this->write8(BQ25883_REG_PART_INFORMATION, regValue); }
@@ -613,6 +624,14 @@ void BQ25883::registerReset(){ uint8_t regValue = this->read8(BQ25883_REG_PART_I
 //
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 //private read/write methods
+uint8_t BQ25883::readRegister(uint8_t reg){ return this->read8(reg); }
+void BQ25883::writeRegister(uint8_t reg, uint8_t value){ this->write8(reg, value); }
+void BQ25883::updateBits(uint8_t reg, uint8_t mask, uint8_t value){
+    uint8_t regValue = this->read8(reg);
+    regValue = (uint8_t)((regValue & ~mask) | (value & mask));
+    this->write8(reg, regValue);
+}
+
 uint8_t BQ25883::read8(uint8_t reg){
     uint8_t byte0 = 0;
 #ifndef HAL_I2C_MODULE_ENABLED

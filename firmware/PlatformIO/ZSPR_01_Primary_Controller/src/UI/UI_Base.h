@@ -2,7 +2,13 @@
 
 #include <Arduino.h>
 #include "HAL_Robot_Module.h"
+#include "Robot_Procedure.h"
 #include "zGFX.h"
+
+// Battery range for the bar and percentage readouts (Dashboard, notification panel).
+// Adjust to the pack (this is one Li-ion cell).
+#define UI_BATT_MIN_MV 3000
+#define UI_BATT_MAX_MV 4200
 
 // Base class for everything that owns a screen: the launcher and every app in
 // UI/apps/. It carries the standard per-frame routine (touch -> refresh -> render)
@@ -32,8 +38,8 @@ public:
     };
     static constexpr int SWIPE_MIN_PX = 60;
 
-    UI_Base(HAL_Robot_Module &robot, const char *name, zgfx::Point iconPos)
-        : _robot(robot), _name(name), _iconPos(iconPos), _screen(BOARD_TFT_WIDTH, BOARD_TFT_HEIGHT, zgfx::colors::Black)
+    UI_Base(HAL_Robot_Module &robot, Robot_Procedure &procedure, const char *name, zgfx::Point iconPos)
+        : _robot(robot), _procedure(procedure), _name(name), _iconPos(iconPos), _screen(BOARD_TFT_WIDTH, BOARD_TFT_HEIGHT, zgfx::colors::Black)
     {
     }
     virtual ~UI_Base() { free(_iconBuf); }
@@ -53,7 +59,9 @@ public:
     void exit() { onExit(); }
     void touch(const TouchEvent &ev);     // display event -> widgets
     // Draws into fb if anything changed; true means present it. Always follow with endFrame().
-    bool frame(uint16_t *fb, uint16_t w, uint16_t h);
+    // scratch: optional internal-RAM strip the changed areas are drawn in before being
+    // copied into fb (see zgfx::Screen::render()).
+    bool frame(uint16_t *fb, uint16_t w, uint16_t h, uint16_t *scratch = nullptr, size_t scratchPixels = 0);
     void endFrame() { _screen.endFrame(); }
 
     // Navigation requests raised by widgets, collected by UI_Task after each event.
@@ -75,6 +83,7 @@ protected:
     void launch(UI_Base *app) { _launch = app; }
 
     HAL_Robot_Module &_robot;
+    Robot_Procedure &_procedure; // robot control: calibration, joint limits, joint targets
     zgfx::Screen _screen;
 
 private:

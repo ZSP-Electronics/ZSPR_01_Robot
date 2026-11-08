@@ -2,10 +2,6 @@
 
 #include "../UI_Base.h"
 
-// Battery bar range. Adjust to the pack (this is one Li-ion cell).
-#define UI_BATT_MIN_MV 3000
-#define UI_BATT_MAX_MV 4200
-
 // IMU axis conventions. The roll/pitch signs depend on how the board is mounted;
 // if the horizon tilts the wrong way, flip the matching sign to -1. Heading is
 // offset by UI_HEADING_OFFSET_DEG (add the mounting angle between the board's
@@ -22,7 +18,7 @@
 class Dashboard_App : public UI_Base
 {
 public:
-    explicit Dashboard_App(HAL_Robot_Module &robot) : UI_Base(robot, "Status", {140, 200}) {}
+    Dashboard_App(HAL_Robot_Module &robot, Robot_Procedure &procedure) : UI_Base(robot, procedure, "Status", {73, 200}) {}
 
 protected:
     void onStart() override;

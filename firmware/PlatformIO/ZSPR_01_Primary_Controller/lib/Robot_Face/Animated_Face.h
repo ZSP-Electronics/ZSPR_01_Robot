@@ -294,7 +294,7 @@ private:
 
   bool surprise = false;
   int surprisedEyePadding = 0;
-  int surprisedEyePaddingNext;
+  int surprisedEyePaddingNext = 0;  // was uninitialised: heap garbage stretched the eyes (render adds it above and below)
 
   //*********************************************************************************************
   //  Mouth Geometry
@@ -323,14 +323,14 @@ private:
   bool mouth_surprised = 0;
 
   int topMouthLip = 0;
-  int topMouthLipNext;
+  int topMouthLipNext = 0;
   int topMouthRadius = 0;
 
   int bottomMouthLip = 0;
-  int bottomMouthLipNext;
+  int bottomMouthLipNext = 0;
 
   int surprisedPadding = 0;
-  int surprisedPaddingNext;
+  int surprisedPaddingNext = 0;
 
 
   //*********************************************************************************************

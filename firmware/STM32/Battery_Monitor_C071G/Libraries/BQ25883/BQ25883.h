@@ -8,7 +8,8 @@
 /* BQ25883 I2C Address */
 #define BQ25883_I2C_ADDRESS 0x6B
 /* PART INFO */
-#define BQ25883_PARTINFO 0x19
+#define BQ25883_PARTINFO 0x19   // full REG25 byte seen on rev-1 silicon (informational)
+#define BQ25883_PN       0x03   // PN[3:0] field, REG25 bits 6:3
 
 /* REGISTER DEFINITIONS (from bq25883.pdf) */
 #define BQ25883_REG_VOLTAGE_LIMIT             0x00    // (R/W)
@@ -159,6 +160,7 @@ public:
     bool getPG_STAT();
     uint8_t getVBUS_STAT();
     uint8_t getICO_STAT();
+    bool getVSYS_STAT();
 
     uint8_t readNtcStatusReg();
     uint8_t getNTCStatus();
@@ -166,6 +168,7 @@ public:
     uint8_t readFaultStatusReg();
     bool getVBUS_OVP_STAT();
     bool getTSHUT_STAT();
+    bool getBATOVP_STAT();
     bool getTMR_STAT();
 
     uint16_t readChargeFlagsReg();
@@ -182,6 +185,7 @@ public:
     uint8_t readFaultFlagsReg();
     bool getVBUS_OVP_FLAG();
     bool getTSHUT_FLAG();
+    bool getBATOVP_FLAG();
     bool getTMR_FLAG();
 
     uint16_t readChargerIntMaskReg();
@@ -200,6 +204,7 @@ public:
     bool getVBUS_OVP_MASK();
     bool getTSHUT_MASK();
     bool getTMR_MASK();
+    bool getBATOVP_MASK();
     bool getSNS_SHORT_MASK();
 
     uint8_t readADCControlSettingsReg();
@@ -213,7 +218,7 @@ public:
     bool getVBUS_ADC_DIS();
     bool getVBAT_ADC_DIS();
     bool getTS_ADC_DIS();
-    bool getVCELL_ADC_DIS();
+    bool getVSYS_ADC_DIS();
     bool getTDIE_ADC_DIS();
 
     int16_t readADCIbusReg();
@@ -318,6 +323,8 @@ public:
     void setPFM_DIS(bool disable);
     void wdReset();
     void setTOPOFF_TIMER(uint8_t topOffTimer);
+    void setSYS_MIN(float sysMin);
+    float getSYS_MIN();
     void setJEITA_VSET(uint8_t jeitaSetting);
     void setJEITA_ISETH(uint8_t jeitaSetting);
     void setJEITA_ISETC(uint8_t jeitaSetting);
@@ -332,10 +339,12 @@ public:
     void setVBUS_MASK(bool disable);
     void setTS_MASK(bool disable);
     void setICO_MASK(bool disable);
+    void setVSYS_MASK(bool disable);
 
     void setVBUS_OVP_MASK(bool disable);
     void setTSHUT_MASK(bool disable);
     void setTMR_MASK(bool disable);
+    void setBATOVP_MASK(bool disable);
     void setSNS_SHORT_MASK(bool disable);
 
     void setADC_EN(bool enable);
@@ -347,10 +356,15 @@ public:
     void setVBUS_ADC_DIS(bool disable);
     void setVBAT_ADC_DIS(bool disable);
     void setTS_ADC_DIS(bool disable);
-    void setVCELL_ADC_DIS(bool disable);
+    void setVSYS_ADC_DIS(bool disable);
     void setTDIE_ADC_DIS(bool disable);
 
     void registerReset();
+
+    // Raw register access for whole-register configuration and readback.
+    uint8_t readRegister(uint8_t reg);
+    void writeRegister(uint8_t reg, uint8_t value);
+    void updateBits(uint8_t reg, uint8_t mask, uint8_t value);
 
     void setVDIFF_END_OFFSET(uint8_t cellBalExitThresh);
     void setTCB_QUAL_INTERVAL(uint8_t cbQualInterval);
